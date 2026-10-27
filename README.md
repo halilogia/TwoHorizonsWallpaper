@@ -1,0 +1,33 @@
+# Two Horizons
+
+Wallpaper Engine web wallpaper made with three.js: a black hole with a lensed accretion arch rising over a quiet farm horizon. Animated sky, swaying grass, a turning windmill, drifting embers, sea reflection.
+
+![preview](preview.jpg)
+
+## Install in Wallpaper Engine
+
+1. Wallpaper Engine → **Open Wallpaper Editor → Create Wallpaper**… or simply copy this folder to
+   `Steam\steamapps\common\wallpaper_engine\projects\myprojects\TwoHorizons`.
+2. In Wallpaper Engine press **Refresh**, pick *Two Horizons* from *My Wallpapers*.
+
+The folder needs `project.json`, `index.html`, `dist/wallpaper.js` and `preview.jpg`. `dist/` is committed so no build is needed.
+
+## Options (Wallpaper Engine properties)
+
+Palette (Amber / Violet / Cycle), Quality (Low / Medium / High), FPS limit, Glow, Animation speed, Mouse parallax, Stars.
+Low quality drops the render scale, grass count and bloom.
+
+## Develop
+
+```bash
+npm install
+npm run build      # src/ -> dist/wallpaper.js (single IIFE, works from file://)
+npm run serve      # http://127.0.0.1:8123  (?palette=violet&q=medium&fps=30)
+```
+
+`window.__capture()` returns a JPEG of the current frame (used to make `preview.jpg`).
+
+## Layout
+
+- `src/shaders.js` – sky/black hole, grass, ground, embers, grade (GLSL)
+- `src/main.js` – scene, post-processing (bloom, tone map, grain), quality/properties, loop

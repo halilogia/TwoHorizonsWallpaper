@@ -1,0 +1,34 @@
+{
+  "file": "index.html",
+  "title": "Two Horizons",
+  "type": "web",
+  "preview": "preview.jpg",
+  "description": "A black hole rising over a quiet farm horizon. Three.js, animated, lightweight.",
+  "tags": ["Space", "Abstract"],
+  "general": {
+    "properties": {
+      "schemecolor": { "order": 0, "text": "ui_browse_properties_scheme_color", "type": "color", "value": "0.8 0.4 0.1" },
+      "palette": {
+        "order": 1, "text": "Palette", "type": "combo", "value": "amber",
+        "options": [
+          { "label": "Amber", "value": "amber" },
+          { "label": "Violet", "value": "violet" },
+          { "label": "Cycle (slow)", "value": "cycle" }
+        ]
+      },
+      "quality": {
+        "order": 2, "text": "Quality", "type": "combo", "value": "high",
+        "options": [
+          { "label": "Low", "value": "low" },
+          { "label": "Medium", "value": "medium" },
+          { "label": "High", "value": "high" }
+        ]
+      },
+      "fps": { "order": 3, "text": "FPS limit", "type": "slider", "value": 60, "min": 15, "max": 144, "step": 1, "fraction": false },
+      "bloom": { "order": 4, "text": "Glow", "type": "slider", "value": 1.0, "min": 0, "max": 2, "step": 0.05, "fraction": true },
+      "speed": { "order": 5, "text": "Animation speed", "type": "slider", "value": 1.0, "min": 0, "max": 3, "step": 0.05, "fraction": true },
+      "parallax": { "order": 6, "text": "Mouse parallax", "type": "bool", "value": true },
+      "stars": { "order": 7, "text": "Stars", "type": "slider", "value": 1.0, "min": 0, "max": 2, "step": 0.05, "fraction": true }
+    }
+  }
+}
