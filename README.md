@@ -1,6 +1,8 @@
 # Two Horizons
 
-Wallpaper Engine web wallpaper made with three.js: a black hole with a lensed accretion arch rising over a quiet farm horizon. Animated sky, swaying grass, a turning windmill, drifting embers, sea reflection.
+Wallpaper Engine web wallpaper made with three.js: a ray-traced Schwarzschild black hole (real light bending, Keplerian accretion disk with Doppler beaming, lensed stars) rising over a quiet farm horizon. Orbiting disk flow, shooting stars, wind rolling through the grass, a turning windmill, drifting embers, sea reflection, slow camera drift.
+
+Quality comes first: the default is full-quality per-pixel geodesic ray tracing. Lower the Quality option if your GPU struggles.
 
 ![preview](preview.jpg)
 

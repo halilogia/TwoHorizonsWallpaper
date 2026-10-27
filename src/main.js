@@ -16,9 +16,9 @@ const PALETTES = {
   violet: { hot: [0.95, 0.78, 1.00], mid: [0.55, 0.28, 1.00], cool: [0.16, 0.06, 0.45] }
 };
 const QUALITY = {
-  low:    { pixelRatio: 0.6, grass: 14000, embers: 60,  bloom: false },
-  medium: { pixelRatio: 0.85, grass: 45000, embers: 140, bloom: true },
-  high:   { pixelRatio: 1.0, grass: 95000, embers: 240, bloom: true }
+  low:    { pixelRatio: 0.6, grass: 14000, embers: 60,  bloom: false, steps: 90 },
+  medium: { pixelRatio: 0.85, grass: 45000, embers: 140, bloom: true, steps: 160 },
+  high:   { pixelRatio: 1.0, grass: 120000, embers: 300, bloom: true, steps: 240 }
 };
 
 const query = new URLSearchParams(location.search);
@@ -56,7 +56,7 @@ camera.position.set(0, 1.7, 0);
 // ---- sky -------------------------------------------------------------
 const sky = new THREE.Mesh(
   new THREE.PlaneGeometry(2, 2),
-  new THREE.ShaderMaterial({ vertexShader: skyVert, fragmentShader: skyFrag, uniforms: U, depthTest: false, depthWrite: false })
+  new THREE.ShaderMaterial({ vertexShader: skyVert, fragmentShader: skyFrag, uniforms: U, depthTest: false, depthWrite: false, defines: { STEPS: 240 } })
 );
 sky.frustumCulled = false;
 sky.renderOrder = -10;
@@ -138,6 +138,74 @@ function buildWindmill() {
   return g;
 }
 
+function buildTruck() {
+  const g = new THREE.Group();
+  const add = (geo, x, y, z) => { const m = new THREE.Mesh(geo, dark); m.position.set(x, y, z); g.add(m); return m; };
+  // side profile of a pickup, extruded across its width
+  const prof = new THREE.Shape([
+    new THREE.Vector2(-2.5, 0.45), new THREE.Vector2(2.5, 0.45), new THREE.Vector2(2.55, 1.15),
+    new THREE.Vector2(2.0, 1.35), new THREE.Vector2(1.35, 1.45), new THREE.Vector2(0.95, 2.2),
+    new THREE.Vector2(-0.15, 2.2), new THREE.Vector2(-0.3, 1.5), new THREE.Vector2(-2.5, 1.5)
+  ]);
+  const body = new THREE.Mesh(new THREE.ExtrudeGeometry(prof, { depth: 1.9, bevelEnabled: false }), dark);
+  body.position.z = -0.95;
+  g.add(body);
+  for (const x of [-1.5, 1.6]) for (const z of [-0.95, 0.95]) {
+    const w = add(new THREE.CylinderGeometry(0.46, 0.46, 0.3, 14), x, 0.46, z);
+    w.rotation.x = Math.PI / 2;
+  }
+  const lamp = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), windowMat);   // one dim tail lamp
+  lamp.position.set(-2.52, 1.0, 0.7); lamp.rotation.y = -Math.PI / 2;
+  g.add(lamp);
+  return g;
+}
+function buildTree() {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 3.2, 7), dark);
+  trunk.position.y = 1.6;
+  g.add(trunk);
+  for (const [x, y, z, s] of [[0, 4.2, 0, 1.9], [-1.1, 3.6, 0.3, 1.3], [1.2, 3.7, -0.2, 1.4], [0.2, 5.3, 0.1, 1.1]]) {
+    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 1), dark);
+    b.position.set(x, y, z); b.scale.y = 0.85;
+    g.add(b);
+  }
+  return g;
+}
+function buildFence() {
+  const g = new THREE.Group();
+  for (let x = -34; x <= 34; x += 3.2) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.15, 0.14), dark);
+    post.position.set(x, 0.575, 0);
+    g.add(post);
+  }
+  for (const y of [0.45, 0.9]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(68.6, 0.07, 0.05), dark);
+    rail.position.set(0, y, 0);
+    g.add(rail);
+  }
+  return g;
+}
+function buildPole() {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 8.5, 6), dark);
+  pole.position.y = 4.25;
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 0.12), dark);
+  arm.position.y = 7.9;
+  g.add(pole, arm);
+  return g;
+}
+
+const truck = buildTruck();
+truck.position.set(-3.2, 0, FAR_Z + 6);
+truck.rotation.y = 0.18;
+const tree = buildTree();
+tree.position.set(-8.5, 0, FAR_Z + 2);
+const fence = buildFence();
+fence.position.set(0, 0, FAR_Z + 9);
+const pole = buildPole();
+pole.position.set(15, 0, FAR_Z + 7);
+scene.add(truck, tree, fence, pole);
+
 const farm = buildFarm();
 farm.position.set(9.0, 0, FAR_Z + 2);
 farm.rotation.y = -0.08;
@@ -198,6 +266,7 @@ function applyQuality() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * q.pixelRatio);
   buildGrass(q.grass);
   buildEmbers(q.embers);
+  if (sky.material.defines.STEPS !== q.steps) { sky.material.defines.STEPS = q.steps; sky.material.needsUpdate = true; }
   bloomPass.enabled = q.bloom && settings.bloom > 0.01;
   resize();
 }
@@ -211,7 +280,6 @@ function resize() {
   const pr = renderer.getPixelRatio();
   U.uRes.value.set(w * pr, h * pr);
   fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
-  grade.uniforms.uAspect.value = w / h;
   if (embers) embers.material.uniforms.uPx.value = h * pr / 1080;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -254,8 +322,6 @@ function update(t) {
   camera.position.y = 1.7 + mouseS.y * 0.12 + Math.sin(t * 0.09) * 0.12;
   camera.position.z = Math.sin(t * 0.06) * 1.5;
   windmillRotor.rotation.z = -t * 0.8;
-  // keep the post pass' black-hole mask glued to the shader's moving hole (see holeCenter() in the sky shader)
-  grade.uniforms.uHole.value = [-0.10 + mouseS.x * 0.012 + Math.sin(t * 0.11) * 0.035, HORIZON + 0.375 + mouseS.y * 0.012 + Math.sin(t * 0.07) * 0.012];
 }
 window.__capture = (t) => { if (t !== undefined) update(t); composer.render(); return renderer.domElement.toDataURL('image/jpeg', 0.92); };
 
