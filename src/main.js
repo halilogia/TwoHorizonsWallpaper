@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import {
   skyVert, skyFrag, grassVert, grassFrag, groundVert, groundFrag,
   emberVert, emberFrag, gradeShader
@@ -174,6 +175,8 @@ composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.4, 0.9);
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
+const fxaa = new ShaderPass(FXAAShader);
+composer.addPass(fxaa);
 const grade = new ShaderPass(gradeShader);
 composer.addPass(grade);
 
@@ -207,6 +210,8 @@ function resize() {
   composer.setSize(w, h);
   const pr = renderer.getPixelRatio();
   U.uRes.value.set(w * pr, h * pr);
+  fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
+  grade.uniforms.uAspect.value = w / h;
   if (embers) embers.material.uniforms.uPx.value = h * pr / 1080;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -237,7 +242,22 @@ window.wallpaperPropertyListener = {
 };
 
 // debug helper: window.__capture() returns a JPEG data URL of the current frame (used to make preview.jpg)
-window.__capture = () => { composer.render(); return renderer.domElement.toDataURL('image/jpeg', 0.92); };
+function update(t) {
+  sim = t;
+  U.uTime.value = t;
+  grade.uniforms.uTime.value = t;
+  if (cycleMode) applyPalette(0.5 - 0.5 * Math.cos(t * (Math.PI * 2) / 120));
+  const pm = settings.parallax ? mouse : new THREE.Vector2();
+  mouseS.lerp(pm, 0.05);
+  U.uMouse.value.copy(mouseS);
+  camera.position.x = mouseS.x * 0.5 + Math.sin(t * 0.12) * 1.1;
+  camera.position.y = 1.7 + mouseS.y * 0.12 + Math.sin(t * 0.09) * 0.12;
+  camera.position.z = Math.sin(t * 0.06) * 1.5;
+  windmillRotor.rotation.z = -t * 0.8;
+  // keep the post pass' black-hole mask glued to the shader's moving hole (see holeCenter() in the sky shader)
+  grade.uniforms.uHole.value = [-0.10 + mouseS.x * 0.012 + Math.sin(t * 0.11) * 0.035, HORIZON + 0.375 + mouseS.y * 0.012 + Math.sin(t * 0.07) * 0.012];
+}
+window.__capture = (t) => { if (t !== undefined) update(t); composer.render(); return renderer.domElement.toDataURL('image/jpeg', 0.92); };
 
 // ---- loop ------------------------------------------------------------
 setPalette(settings.palette);
@@ -252,19 +272,7 @@ function frame() {
   if (acc < step - 0.0005) return;
   const d = Math.min(acc, 0.1) * settings.speed;
   acc = 0;
-  sim += d;
-  U.uTime.value = sim;
-  grade.uniforms.uTime.value = sim;
-
-  if (cycleMode) applyPalette(0.5 - 0.5 * Math.cos(sim * (Math.PI * 2) / 120));
-
-  const pm = settings.parallax ? mouse : new THREE.Vector2();
-  mouseS.lerp(pm, 1 - Math.pow(0.02, d));
-  U.uMouse.value.copy(mouseS);
-  camera.position.x = mouseS.x * 0.5 + Math.sin(sim * 0.05) * 0.25;
-  camera.position.y = 1.7 + mouseS.y * 0.12 + Math.sin(sim * 0.07) * 0.05;
-  windmillRotor.rotation.z = -sim * 0.35;
-
+  update(sim + d);
   composer.render();
 }
 frame();
