@@ -14,7 +14,10 @@ export const AURUM = {
   hot: [1.00, 0.82, 0.50], mid: [1.00, 0.45, 0.10], cool: [0.50, 0.12, 0.03],
   camD: 17.8, inc: 0.10, rOut: 9, dopp: 1, gain: 1.0, sky: 0,
   skyTop: [0, 0, 0], skyLow: [0, 0, 0], band: [0, 0, 0],
-  alt: 2.09, hs0: -0.57, hs1: 0.32, dolly: 0, mm: 49, holeAz: -0.04, holeEl: 0.078,
+  // camera rig read off the reference video (frames 020-025): [alt m, lens mm, horizon height on screen]. Climbing widens the lens and pulls back a little.
+  rig: [[1.9, 107, -0.35], [4.05, 39, -0.57], [13, 29, -0.55], [20, 26, -0.54], [24, 25, -0.54]],
+  altMin: 1.9, altMax: 24,
+  alt: 4.05, hs0: -0.57, hs1: -0.54, dolly: 0.6, mm: 39, holeAz: -0.04, holeEl: 0.078,
   bloom: 0.4, bloomRadius: 0.25, exposure: 0.85
 };
 
