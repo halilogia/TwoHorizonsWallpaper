@@ -15,9 +15,9 @@ export const AURUM = {
   camD: 17.8, inc: 0.10, rOut: 9, dopp: 1, gain: 1.0, sky: 0,
   skyTop: [0, 0, 0], skyLow: [0, 0, 0], band: [0, 0, 0],
   // camera rig read off the reference video (frames 020-025): [alt m, lens mm, horizon height on screen]. Climbing widens the lens and pulls back a little.
-  rig: [[1.9, 107, -0.35], [4.05, 39, -0.57], [13, 29, -0.55], [20, 26, -0.54], [24, 25, -0.54]],
-  altMin: 1.9, altMax: 24,
-  alt: 4.05, hs0: -0.57, hs1: -0.54, dolly: 0.6, mm: 39, holeAz: -0.04, holeEl: 0.078,
+  rig: [[1.9, 107, -0.35], [4.05, 39, -0.57], [13, 29, -0.52], [20, 26, -0.38], [24, 25, -0.28]],
+  altMin: 1.9, altMax: 24, yawMax: 0.25,
+  alt: 4.05, hs0: -0.57, hs1: -0.28, dolly: 1.2, mm: 39, holeAz: -0.04, holeEl: 0.078,
   bloom: 0.4, bloomRadius: 0.25, exposure: 0.85
 };
 
@@ -26,9 +26,10 @@ export function createAurum(U) {
 
   const FAR_Z = -112;   // the wheat ends here, past the house and truck so both stand in the field
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(700, 170).rotateX(-Math.PI / 2).translate(0, 0, 12 - 85),
-    new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U })
+    new THREE.PlaneGeometry(2400, 700).rotateX(-Math.PI / 2).translate(0, 0, -250),   // x +-1200, z +100 (behind the camera at any climb) to -600; no edge can reach the frame
+    new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U, transparent: true, depthWrite: false })   // fades out toward the far end so the mirror sea shows beyond the field
   );
+  ground.renderOrder = -1;
   aurum.add(ground);
 
   const TRUCK_AT = new THREE.Vector3(-2.0, 0, -72), HOUSE_AT = new THREE.Vector3(22, 0, -92);

@@ -135,6 +135,8 @@ export function startApp(worlds) {
     resetView();
   }
   const altMin = () => SCENES[current].altMin ?? ALT_MIN, altMax = () => SCENES[current].altMax ?? ALT_MAX;
+  // the pan stays near the hole (it is a fixed direction in the sky); at long lenses the field of view is narrow, so the limit shrinks with it
+  const yawLimit = () => (SCENES[current].yawMax ?? 1.2) * (SCENES[current].yawMax ? clamp(target.tanh / 0.31, 0.4, 1) : 1);
   function setLens(mm) {
     const s = SCENES[current];
     if (s.rig) target.alt = altForMm(s.rig, clamp(mm, s.rig[s.rig.length - 1][1], s.rig[0][1]));
@@ -207,7 +209,7 @@ export function startApp(worlds) {
     cursor.x = (x / window.innerWidth) * 2 - 1;
     cursor.y = -((y / window.innerHeight) * 2 - 1);
     if (drag.on && settings.mode !== 'off') {
-      target.yaw = clamp(target.yaw + (x - drag.x) * 0.0035 * clamp(view.tanh / 0.245, 0.3, 1.4), -1.2, 1.2);   // finer pan at long lenses
+      target.yaw = clamp(target.yaw + (x - drag.x) * 0.0035 * clamp(view.tanh / 0.245, 0.3, 1.4), -yawLimit(), yawLimit());   // finer pan at long lenses
       target.alt = clamp(target.alt * Math.exp(-(y - drag.y) * 0.007), altMin(), altMax());
       drag.x = x; drag.y = y;
     }
@@ -265,6 +267,7 @@ export function startApp(worlds) {
     const s = SCENES[current];
     const follow = settings.mode === 'follow' && settings.parallax;
     const ease = freeze ? 1 : 1 - Math.exp(-dt * 6.5);
+    target.yaw = clamp(target.yaw, -yawLimit(), yawLimit());
     if (s.rig) target.tanh = 12 / rigAt(s.rig, target.alt).mm;
     const goal = { yaw: target.yaw, alt: target.alt, tanh: target.tanh, fx: follow ? cursor.x : 0, fy: follow ? cursor.y : 0 };
     for (const k in goal) view[k] += (goal[k] - view[k]) * ease;

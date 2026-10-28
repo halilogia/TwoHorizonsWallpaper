@@ -333,7 +333,8 @@ void main() {
   // light from the hole spills over the far field, strongest toward its side
   float spill = exp(-pow((vX + 10.0) / 40.0, 2.0));
   vec3 col = uCool * 0.03 + uMid * 0.08 * far * far + mix(uMid, uHot, 0.4) * 0.22 * far * far * spill;
-  gl_FragColor = vec4(col, 1.0);
+  float alpha = 1.0 - smoothstep(125.0, 170.0, -vP.z);   // the carpet ends in a fade, not an edge: beyond it the sky's mirror sea takes over
+  gl_FragColor = vec4(col, alpha);
 }`;
 
 // ---- Viola: lavender field ------------------------------------------------
