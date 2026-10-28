@@ -76,8 +76,12 @@ vec3 background(vec3 d) {
     vec3 tint = mix(vec3(0.75, 0.88, 1.0), vec3(1.0, 0.78, 0.55), h31(id + 9.0));
     acc += tint * s * (L == 0 ? 2.6 : 2.0);
   }
-  float neb = vn(d * 4.0) * 0.6 + vn(d * 9.0) * 0.4;
-  acc += mix(uCool, uMid, 0.35) * band * (0.25 + neb) * 0.07;
+  // galactic band: layered cloud noise, dark dust lanes and colour drifting between the palette's tones
+  vec3 w = d * 3.0 + vec3(1.7, 4.1, 2.3);
+  float neb = vn(w * 1.3 + vn(w * 2.0) * 1.2) * 0.55 + vn(d * 9.0) * 0.3 + vn(d * 22.0) * 0.15;
+  float dust = smoothstep(0.52, 0.78, vn(d * 6.5 + 3.0)) * band;
+  vec3 tone = mix(uCool * 1.4, uHot, smoothstep(0.3, 0.8, vn(d * 2.2 + 9.0)));
+  acc += tone * band * (0.12 + 1.1 * neb * neb) * 0.30 * (1.0 - 0.75 * dust);
   return acc * uStars;
 }
 
@@ -89,9 +93,11 @@ vec4 diskSample(vec3 hit, vec3 rayDir) {
   float omega = 2.6 / (rr * sqrt(rr));                  // Keplerian: inner gas orbits much faster
   float ph = phi - uTime * omega * 0.45;
   float a01 = ph / 6.2831853 + 0.5;
-  float coarse = pfbm(vec2(a01 * 6.0, rr * 1.7), 6.0);
-  float fine = pfbm(vec2(a01 * 18.0, rr * 7.0), 18.0);
-  float turb = 0.25 + 1.5 * smoothstep(0.25, 0.85, coarse * 0.6 + fine * 0.55);
+  float warp = pn(vec2(a01 * 5.0, rr * 1.3), 5.0);
+  float coarse = pfbm(vec2(a01 * 6.0 + warp * 0.9, rr * 1.7), 6.0);
+  float fine = pfbm(vec2(a01 * 20.0, rr * 9.0), 20.0);
+  float fil = pfbm(vec2(a01 * 24.0 + warp, rr * 26.0), 24.0);          // thin strands along the orbit
+  float turb = 0.15 + 1.7 * smoothstep(0.22, 0.82, coarse * 0.42 + fine * 0.28 + fil * 0.38);
 
   float T = pow(RIN / rr, 0.75) * 1.3;
   vec3 vdir = normalize(vec3(-hit.z, 0.0, hit.x));      // sense of rotation (approaching side ends up on the left)
@@ -194,6 +200,9 @@ void main() {
     vec2 pm = vec2(p.x + rip * 0.03 * (dy * 8.0 + 0.2), uHorizon + dy);
     float streak = 0.55 + 0.9 * pn(vec2(p.x * 9.0, dy * 140.0 + uTime * 0.4), 1000.0);
     col = sky(pm) * 0.8 * streak + uCool * 0.012;
+    // glints dancing on the water under the hole
+    float gl = pow(pn(vec2(p.x * 70.0 + uTime * 0.7, dy * 420.0 - uTime * 1.6), 1000.0), 9.0);
+    col += mix(uMid, uHot, 0.6) * gl * 14.0 * exp(-abs(p.x - c.x) * 2.2) * exp(-dy * 7.0);
   }
   col += uMid * exp(-abs(p.y - uHorizon) / 0.0035) * 0.45 * exp(-abs(p.x - c.x) * 0.5);
   gl_FragColor = vec4(col, 1.0);
@@ -207,22 +216,29 @@ varying float vH;
 varying float vDepth;
 varying float vX;
 varying float vSeed;
+varying float vFace;
 
 void main() {
   float hgt = position.y;
+  float side = position.x;                         // -0.5 .. 0.5 across the blade
   float seed = aInst.z;
   float depth = -aInst.y;
-  float height = mix(0.45, 1.15, fract(seed * 7.31));
-  float width = 0.03 + depth * 0.011;
-  vec3 pos = vec3(aInst.x + position.x * width * (1.0 - hgt), hgt * height, aInst.y);
+  float yaw = fract(seed * 91.7) * 3.14159;
+  vec2 sideDir = vec2(cos(yaw), sin(yaw));
+  float tall = step(0.93, fract(seed * 37.1));     // the odd tall seed stalk
+  float height = mix(0.5, 1.2, fract(seed * 7.31)) * (1.0 + tall * 0.55);
+  float width = (0.035 + depth * 0.012) * (1.0 - hgt * 0.88);
+  vec3 pos = vec3(aInst.x + sideDir.x * side * width, hgt * height, aInst.y + sideDir.y * side * width);
   float w = sin(uTime * uWind * 1.3 + aInst.x * 0.35 + aInst.y * 0.2 + seed * 6.0) * 0.5
           + sin(uTime * uWind * 2.1 + aInst.x * 0.8 + seed * 11.0) * 0.5;
   float gust = sin(aInst.x * 0.09 - uTime * uWind * 0.9 + aInst.y * 0.05);   // wind front rolling across the field
-  pos.x += (w * 0.22 + gust * 0.30) * hgt * hgt;
-  pos.z += (w * 0.06 + gust * 0.10) * hgt * hgt;
+  float bend = hgt * hgt;
+  pos.x += (w * 0.22 + gust * 0.34) * bend * (1.0 + tall * 0.4);
+  pos.z += (w * 0.06 + gust * 0.12) * bend;
+  pos.y -= bend * 0.12 * abs(gust);
   vec4 mv = viewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
-  vH = hgt; vDepth = depth; vX = pos.x; vSeed = seed;
+  vH = hgt; vDepth = depth; vX = pos.x; vSeed = seed; vFace = abs(cos(yaw));
 }`;
 
 export const grassFrag = /* glsl */ `
@@ -233,15 +249,21 @@ varying float vH;
 varying float vDepth;
 varying float vX;
 varying float vSeed;
+varying float vFace;
 
 void main() {
-  float lit = 0.55 + 0.6 * smoothstep(8.0, -30.0, vX);
   float far = smoothstep(3.0, 30.0, vDepth);
-  float rim = pow(vH, 1.8) * mix(0.10, 0.9, far * far) * lit;
-  vec3 tip = mix(uMid, uHot, smoothstep(0.55, 1.0, vH) * 0.7);
-  vec3 col = uCool * 0.05 + tip * rim * (0.7 + 0.6 * fract(vSeed * 13.7));
-  col *= mix(0.22, 1.0, smoothstep(2.0, 26.0, vDepth));
-  col = mix(col, uMid * 0.10, smoothstep(22.0, 31.0, vDepth) * 0.5);
+  float lit = 0.55 + 0.6 * smoothstep(8.0, -30.0, vX);
+  float s = fract(vSeed * 13.7);
+  vec3 dry = mix(vec3(0.55, 0.40, 0.14), vec3(0.62, 0.52, 0.20), s);          // golden to olive straw
+  vec3 base = mix(dry * 0.04, dry * 0.22, vH);                                  // dark roots
+  float back = pow(vH, 1.6) * mix(0.12, 1.0, far * far) * lit;                  // light shining through the blade
+  float trans = 0.55 + 0.9 * vFace;
+  vec3 glow = mix(uMid, uHot, smoothstep(0.55, 1.0, vH) * 0.75) * back * trans * (0.65 + 0.7 * s);
+  float glint = step(0.97, fract(vSeed * 53.1)) * pow(vH, 3.0) * mix(0.3, 1.6, far);
+  vec3 col = base + glow + uHot * glint * 0.8;
+  col *= mix(0.20, 1.0, smoothstep(2.0, 26.0, vDepth));                         // foreground sits in shadow
+  col = mix(col, uMid * 0.14, smoothstep(20.0, 31.0, vDepth) * 0.6);            // horizon mist
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -325,7 +347,7 @@ void main() {
 }`;
 
 export const gradeShader = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uTexel: { value: [1 / 1920, 1 / 1080] } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uTexel: { value: [1 / 1920, 1 / 1080] }, uHoleUV: { value: [0.5, 0.7] }, uRays: { value: 1.0 } },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -333,6 +355,8 @@ export const gradeShader = {
     uniform sampler2D tDiffuse;
     uniform float uTime;
     uniform vec2 uTexel;
+    uniform vec2 uHoleUV;
+    uniform float uRays;
     varying vec2 vUv;
     float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
@@ -347,6 +371,15 @@ export const gradeShader = {
         streak += max(s - 0.82, 0.0) * exp(-abs(fi) * 0.14);
       }
       c += streak * vec3(0.35, 0.55, 1.0) * 0.16;
+      // crepuscular rays: bright light marched toward the hole; silhouettes and grass cast dark shafts into it
+      vec3 rays = vec3(0.0);
+      float decay = 1.0;
+      for (int k = 0; k < 28; k++) {
+        vec2 sp = mix(vUv, uHoleUV, float(k) / 28.0 * 0.6);
+        rays += max(texture2D(tDiffuse, sp).rgb - 0.86, 0.0) * decay;
+        decay *= 0.93;
+      }
+      c += rays * 0.032 * uRays;
       c *= 1.0 - dot(q, q) * 0.9;
       c += (h(vUv * 1000.0 + fract(uTime) * 7.0) - 0.5) * 0.018;
       gl_FragColor = vec4(c, 1.0);

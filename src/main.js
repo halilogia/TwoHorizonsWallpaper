@@ -74,7 +74,14 @@ let grass = null;
 function buildGrass(count) {
   if (grass) { scene.remove(grass); grass.geometry.dispose(); }
   const base = new THREE.InstancedBufferGeometry();
-  base.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0, 1, 0], 3));
+  // five-row tapered blade: pairs of vertices up the stalk plus one tip vertex
+  const rows = 4, pos = [], idx = [];
+  for (let r = 0; r < rows; r++) pos.push(-0.5, r / rows, 0, 0.5, r / rows, 0);
+  pos.push(0, 1, 0);
+  for (let r = 0; r < rows - 1; r++) { const a = r * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  const t = (rows - 1) * 2; idx.push(t, t + 1, rows * 2);
+  base.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  base.setIndex(idx);
   const inst = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
     const z = -(1.5 + (-FAR_Z - 1.5) * Math.pow(Math.random(), 1.35));
@@ -248,8 +255,9 @@ function buildPole() {
 }
 
 const truck = buildTruck();
-truck.position.set(-2.4, 0, FAR_Z + 13);
+truck.position.set(-2.2, 0, FAR_Z + 10);
 truck.rotation.y = 0.28;
+truck.scale.setScalar(1.35);
 const tree = buildTree();
 tree.position.set(-8.5, 0, FAR_Z + 2);
 const fence = buildFence();
@@ -257,6 +265,41 @@ fence.position.set(0, 0, FAR_Z + 9);
 const pole = buildPole();
 pole.position.set(15, 0, FAR_Z + 7);
 scene.add(truck, tree, fence, pole);
+
+// power line: two more poles with sagging wires crossing the sky
+const wireMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.012, 0.008, 0.006) });
+const polesX = [15, -7, -29];
+for (const px of polesX.slice(1)) {
+  const p2 = buildPole();
+  p2.position.set(px, 0, FAR_Z + 7);
+  scene.add(p2);
+}
+for (let i = 0; i < polesX.length - 1; i++) {
+  for (const off of [-1.0, 1.0]) {
+    const x1 = polesX[i] + off, x2 = polesX[i + 1] + off, y = 7.85, z = FAR_Z + 7;
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x1, y, z), new THREE.Vector3((x1 * 2 + x2) / 3, y - 1.05, z),
+      new THREE.Vector3((x1 + x2 * 2) / 3, y - 1.05, z), new THREE.Vector3(x2, y, z)
+    ]);
+    scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.032, 5), wireMat));
+  }
+}
+
+// a loose flock crossing the sky
+const birds = [];
+{
+  const wingGeo = new THREE.ShapeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(-1.0, 0.12), new THREE.Vector2(-0.35, -0.12)]));
+  const flat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.014, 0.009, 0.006), side: THREE.DoubleSide });
+  for (let i = 0; i < 11; i++) {
+    const g = new THREE.Group();
+    const l = new THREE.Mesh(wingGeo, flat), r = new THREE.Mesh(wingGeo, flat);
+    r.scale.x = -1;
+    g.add(l, r);
+    g.scale.setScalar(0.9 + Math.random() * 0.5);
+    scene.add(g);
+    birds.push({ g, l, r, x: Math.random() * 70 - 35, y: 9 + Math.random() * 5 + (i % 3) * 0.7, z: -34 - Math.random() * 6, v: 1.6 + Math.random() * 0.5, ph: Math.random() * 6 });
+  }
+}
 
 const farm = buildFarm();
 farm.position.set(9.0, 0, FAR_Z + 2);
@@ -299,6 +342,26 @@ const fxaa = new ShaderPass(FXAAShader);
 composer.addPass(fxaa);
 const grade = new ShaderPass(gradeShader);
 composer.addPass(grade);
+
+// ---- optional HUD (off by default) ----------------------------------
+const hud = document.createElement('div');
+hud.style.cssText = 'position:fixed;inset:0;pointer-events:none;display:none;font:11px/1.6 Consolas,monospace;letter-spacing:.14em;color:rgba(255,236,210,.82);text-shadow:0 0 8px rgba(0,0,0,.6)';
+function hudText(css, text, parent) {
+  const el = document.createElement('div');
+  el.style.cssText = css;
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+const hudHead = hudText('position:absolute;left:28px;top:24px', '', hud);
+hudText('font-size:10px;opacity:.6', 'TWO HORIZONS', hudHead);
+const hudTitle = hudText('font:300 30px Georgia,serif;letter-spacing:.02em;margin-top:2px', 'Ember', hudHead);
+hudText('opacity:.6;margin-top:4px', 'The last farm before the event horizon', hudHead);
+const hudData = hudText('position:absolute;left:28px;bottom:26px;white-space:pre', '', hud);
+document.body.appendChild(hud);
+let hudLast = 0, fpsShown = 0, fpsCount = 0, fpsStamp = performance.now();
+function setHud(on) { hud.style.display = on ? 'block' : 'none'; }
+if (query.get('hud') === '1') setHud(true);
 
 // ---- settings application -------------------------------------------
 let cycleMode = false;
@@ -358,6 +421,8 @@ window.wallpaperPropertyListener = {
     if (p.speed) settings.speed = p.speed.value;
     if (p.parallax) settings.parallax = !!p.parallax.value;
     if (p.stars) { settings.stars = p.stars.value; U.uStars.value = settings.stars; }
+    if (p.hud) setHud(!!p.hud.value);
+    if (p.rays) grade.uniforms.uRays.value = p.rays.value;
     if (rebuild) applyQuality();
   }
 };
@@ -375,6 +440,31 @@ function update(t) {
   camera.position.y = 1.7 + mouseS.y * 0.12 + Math.sin(t * 0.09) * 0.12;
   camera.position.z = Math.sin(t * 0.06) * 1.5;
   windmillRotor.rotation.z = -t * 0.8;
+
+  const f = 0.92 + 0.08 * Math.sin(t * 7.0) * Math.sin(t * 3.1);   // lamplight flicker
+  windowMat.color.setRGB(5.0 * f, 2.2 * f, 0.55 * f);
+  for (const b of birds) {
+    const x = ((b.x - b.v * t + 35) % 70 + 70) % 70 - 35;
+    b.g.position.set(x, b.y + Math.sin(t * 0.6 + b.ph) * 0.5, b.z);
+    const flap = Math.sin(t * 7.0 + b.ph) * 0.7;
+    b.l.rotation.z = flap; b.r.rotation.z = -flap;
+    b.g.rotation.y = Math.PI / 2 + 0.0;   // wings spread across the line of flight
+    b.g.rotation.x = 0; b.g.lookAt(b.g.position.x - 10, b.g.position.y, b.g.position.z);
+  }
+
+  // keep the light-ray pass aimed at the moving hole (mirrors holeCenter() in the sky shader)
+  const hx = -0.10 + mouseS.x * 0.012 + Math.sin(t * 0.11) * 0.03;
+  const hy = HORIZON + 0.52 + mouseS.y * 0.012 + Math.sin(t * 0.07) * 0.01;
+  grade.uniforms.uHoleUV.value = [(hx / camera.aspect + 1) / 2, (hy + 1) / 2];
+
+  if (hud.style.display !== 'none' && t - hudLast > 0.25) {
+    hudLast = t;
+    const inc = (0.115 + 0.03 * Math.sin(t * 0.09)) * 57.2958;
+    const s = Math.floor(t);
+    const clock = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':');
+    hudData.textContent = `DIST 22.0 Rs   INC ${inc.toFixed(1)}°   T ${clock}   ${fpsShown} FPS`;
+    hudTitle.textContent = U.uHot.value.r > 0.9 && U.uMid.value.b < 0.5 ? 'Ember' : 'Indigo';
+  }
 }
 window.__capture = (t) => { if (t !== undefined) update(t); composer.render(); return renderer.domElement.toDataURL('image/jpeg', 0.92); };
 
@@ -393,5 +483,8 @@ function frame() {
   acc = 0;
   update(sim + d);
   composer.render();
+  fpsCount++;
+  const now = performance.now();
+  if (now - fpsStamp > 1000) { fpsShown = Math.round(fpsCount * 1000 / (now - fpsStamp)); fpsCount = 0; fpsStamp = now; }
 }
 frame();
