@@ -4,7 +4,7 @@
   "private": true,
   "description": "Wallpaper Engine web wallpaper: three.js black hole over a quiet farmland horizon",
   "scripts": {
-    "build": "esbuild src/main.js --bundle --minify --format=iife --target=chrome90 --loader:.glb=dataurl --outfile=dist/wallpaper.js",
+    "build": "esbuild src/aurum-page.js src/viola-page.js --bundle --minify --format=iife --target=chrome90 --loader:.glb=dataurl --outdir=dist --entry-names=[name]",
     "serve": "node tools/serve.mjs"
   },
   "dependencies": {

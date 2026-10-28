@@ -79,6 +79,17 @@ function buildAstronaut(U) {
   return g;
 }
 
+// Scene II: Viola, the violet flower field.
+export const VIOLA = {
+  id: 'viola',
+  name: 'Viola', tagline: 'A violet field beneath the arc of the disk',
+  hot: [1.00, 0.86, 0.62], mid: [0.95, 0.62, 0.45], cool: [0.55, 0.30, 0.50],
+  camD: 33.6, inc: 0.03, rOut: 6.5, dopp: 0.3, gain: 1.4, sky: 1,
+  skyTop: [0.025, 0.022, 0.07], skyLow: [0.11, 0.08, 0.15], band: [1.0, 0.86, 0.62],
+  alt: 1.11, hs0: 0.18, hs1: 0.55, dolly: 4.5, mm: 57, holeAz: 0.04, holeEl: 0.012,
+  bloom: 0.35, bloomRadius: 0.4, exposure: 0.95
+};
+
 export function createViola(U) {
   const group = new THREE.Group();
   group.visible = false;
@@ -95,7 +106,7 @@ export function createViola(U) {
   let flowers = null;
   /** @type {THREE.Points | null} */
   let fireflies = null;
-  function build(count, flies) {
+  function build({ flowers: count, fireflies: flies }) {
     if (flowers) { group.remove(flowers); flowers.geometry.dispose(); }
     const geo = flowerBase();
     const inst = new Float32Array(count * 3);
@@ -150,6 +161,7 @@ export function createViola(U) {
 
   return {
     group, astronaut,
+    bench: () => ({ models: [group], grass: null }),
     build,
     setPx(px) { if (fireflies) fireflies.material.uniforms.uPx.value = px; },
     update(t, camera) {

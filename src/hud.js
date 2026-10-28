@@ -81,6 +81,7 @@ export function createHud(api) {
   // scene menu: I Aurum ---- II Viola
   const menu = el(root, 'position:absolute;left:50%;bottom:30px;transform:translateX(-50%);display:flex;align-items:baseline;gap:26px;white-space:nowrap');
   const items = {};
+  if (api.scenes.length < 2) menu.style.display = 'none';   // a single-scene page has nothing to switch to
   api.scenes.forEach((s, i) => {
     if (i > 0) el(menu, 'width:46px;height:1px;background:rgba(255,236,214,.22);align-self:center');
     const b = el(menu, `pointer-events:auto;cursor:pointer;display:flex;align-items:baseline;gap:8px;padding:6px 4px;transition:opacity .35s,color .35s`);

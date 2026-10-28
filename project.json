@@ -1,23 +1,15 @@
 {
   "file": "index.html",
-  "title": "Two Horizons",
+  "title": "Two Horizons - Aurum",
   "type": "web",
   "preview": "preview.jpg",
-  "description": "Two horizons under one black hole: an amber farm (Aurum) and a violet flower field (Viola). Three.js, animated.",
+  "description": "Aurum: the last amber farm before the event horizon of a black hole. Three.js, animated. (Violet twin: Two Horizons - Viola)",
   "tags": ["Space", "Abstract"],
   "general": {
     "properties": {
       "schemecolor": { "order": 0, "text": "ui_browse_properties_scheme_color", "type": "color", "value": "0.8 0.4 0.1" },
-      "scene": {
-        "order": 1, "text": "Scene", "type": "combo", "value": "aurum",
-        "options": [
-          { "label": "I  Aurum (amber farm)", "value": "aurum" },
-          { "label": "II  Viola (violet field)", "value": "viola" },
-          { "label": "Alternate every 45 s", "value": "cycle" }
-        ]
-      },
       "quality": {
-        "order": 2, "text": "Quality", "type": "combo", "value": "high",
+        "order": 1, "text": "Quality", "type": "combo", "value": "high",
         "options": [
           { "label": "Low", "value": "low" },
           { "label": "Medium", "value": "medium" },
