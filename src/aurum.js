@@ -16,7 +16,7 @@ export const AURUM = {
   skyTop: [0, 0, 0], skyLow: [0, 0, 0], band: [0, 0, 0],
   // camera rig read off the reference video (frames 020-025): [alt m, lens mm, horizon height on screen]. Climbing widens the lens and pulls back a little.
   rig: [[1.9, 107, -0.35], [4.05, 39, -0.57], [13, 29, -0.52], [20, 26, -0.38], [24, 25, -0.28]],
-  altMin: 1.9, altMax: 24, yawMax: 0.25,
+  altMin: 1.9, altMax: 24, yawMax: 0.55,
   alt: 4.05, hs0: -0.57, hs1: -0.28, dolly: 1.2, mm: 39, holeAz: -0.04, holeEl: 0.078,
   bloom: 0.4, bloomRadius: 0.25, exposure: 0.85
 };
@@ -24,21 +24,19 @@ export const AURUM = {
 export function createAurum(U) {
   const aurum = new THREE.Group();
 
-  const FAR_Z = -112;   // the wheat ends here, past the house and truck so both stand in the field
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(2400, 700).rotateX(-Math.PI / 2).translate(0, 0, -250),   // x +-1200, z +100 (behind the camera at any climb) to -600; no edge can reach the frame
-    new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U, transparent: true, depthWrite: false })   // fades out toward the far end so the mirror sea shows beyond the field
+    new THREE.PlaneGeometry(3600, 2200).rotateX(-Math.PI / 2).translate(0, -0.01, -1000),
+    new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U, transparent: true, depthWrite: true })
   );
   ground.renderOrder = -1;
   aurum.add(ground);
 
-  const TRUCK_AT = new THREE.Vector3(-2.0, 0, -72), HOUSE_AT = new THREE.Vector3(22, 0, -92);
+  const TRUCK_AT = new THREE.Vector3(-2.0, -0.06, -72), HOUSE_AT = new THREE.Vector3(22, -0.04, -92), MILL_AT = new THREE.Vector3(-24, -0.04, -84);
   /** @type {THREE.Mesh | null} */
   let grass = null;
   function buildGrass(count) {
     if (grass) { aurum.remove(grass); grass.geometry.dispose(); }
     const base = new THREE.InstancedBufferGeometry();
-    // five-row tapered blade: pairs of vertices up the stalk plus one tip vertex
     const rows = 4, pos = [], idx = [];
     for (let r = 0; r < rows; r++) pos.push(-0.5, r / rows, 0, 0.5, r / rows, 0);
     pos.push(0, 1, 0);
@@ -48,8 +46,19 @@ export function createAurum(U) {
     base.setIndex(idx);
     const inst = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      const z = -(1.5 + (-FAR_Z - 2 - 1.5) * Math.pow(Math.random(), 1.6));
-      const x = (Math.random() * 2 - 1) * (8 + (-z) * 1.0);
+      const rz = Math.random();
+      // Continuous non-linear depth from near camera (-0.5m) to far distance (-175m)
+      const zDist = rz < 0.65
+        ? 0.5 + 74.5 * Math.pow(rz / 0.65, 1.45)
+        : 75.0 + 100.0 * Math.pow((rz - 0.65) / 0.35, 1.25);
+      const z = -zDist;
+
+      // Wide horizontal spread: never a narrow frustum wedge!
+      // Minimum 75m half-width up close, widening to 190m in the distance.
+      const spread = 75.0 + zDist * 0.65;
+      const rx = (Math.random() - 0.5) * 2.0;
+      const x = Math.sign(rx) * Math.pow(Math.abs(rx), 0.88) * spread;
+
       inst[i * 3] = x;
       inst[i * 3 + 1] = z;
       inst[i * 3 + 2] = Math.random();
@@ -185,7 +194,7 @@ export function createAurum(U) {
   /** @type {THREE.Object3D | null} */
   let rotor = null;
   const mill = new THREE.Group();
-  mill.position.set(-24, 0, -84);
+  mill.position.copy(MILL_AT);
   mill.rotation.y = 0.18;
   attachModel(mill, windmillGlb, 1.5, (g, root) => { rotor = root.getObjectByName('WindRotorZ') || null; });
   aurum.add(truck, farm, mill);

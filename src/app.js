@@ -219,7 +219,7 @@ export function startApp(worlds) {
     if (settings.mode !== 'off') setLens(clamp(12 / target.tanh * Math.exp(-dy * 0.0008), MM_MIN, MM_MAX));
   }
   for (const t of ['pointerdown', 'mousedown']) window.addEventListener(t, (e) => onDown(e.clientX, e.clientY));
-  for (const t of ['pointerup', 'mouseup']) window.addEventListener(t, onUp);
+  for (const t of ['pointerup', 'mouseup', 'mouseleave', 'blur']) window.addEventListener(t, onUp);
   for (const t of ['pointermove', 'mousemove']) window.addEventListener(t, (e) => onMove(e.clientX, e.clientY));
   window.addEventListener('wheel', (e) => onWheel(e.deltaY), { passive: true });
   window.addEventListener('dblclick', resetView);
@@ -265,7 +265,7 @@ export function startApp(worlds) {
     grade.uniforms.uFade.value = fade * fade * (3 - 2 * fade);
 
     const s = SCENES[current];
-    const follow = settings.mode === 'follow' && settings.parallax;
+    const follow = settings.mode === 'follow' && settings.parallax && !drag.on;
     const ease = freeze ? 1 : 1 - Math.exp(-dt * 6.5);
     target.yaw = clamp(target.yaw, -yawLimit(), yawLimit());
     if (s.rig) target.tanh = 12 / rigAt(s.rig, target.alt).mm;

@@ -315,26 +315,85 @@ void main() {
 }`;
 
 export const groundVert = /* glsl */ `
-varying vec3 vP;
+varying vec3 vW;
 void main() {
-  vP = position;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 w = modelMatrix * vec4(position, 1.0);
+  vW = w.xyz;
+  gl_Position = projectionMatrix * viewMatrix * w;
 }`;
 
 export const groundFrag = /* glsl */ `
 uniform vec3 uMid;
 uniform vec3 uHot;
 uniform vec3 uCool;
-varying vec3 vP;
+uniform float uTime;
+varying vec3 vW;
+
+float gh21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float gpn(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = gh21(i), b = gh21(i + vec2(1.0, 0.0));
+  float c = gh21(i + vec2(0.0, 1.0)), d = gh21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 void main() {
-  float vDepth = length(vP - cameraPosition);   // per fragment: the plane is huge, a per-vertex distance would interpolate wrongly
-  float vX = vP.x;
-  float far = smoothstep(10.0, 75.0, vDepth);
-  // light from the hole spills over the far field, strongest toward its side
-  float spill = exp(-pow((vX + 10.0) / 40.0, 2.0));
-  vec3 col = uCool * 0.03 + uMid * 0.08 * far * far + mix(uMid, uHot, 0.4) * 0.22 * far * far * spill;
-  float alpha = 1.0 - smoothstep(125.0, 170.0, -vP.z);   // the carpet ends in a fade, not an edge: beyond it the sky's mirror sea takes over
-  gl_FragColor = vec4(col, alpha);
+  float vDist = length(vW - cameraPosition);
+  float far = smoothstep(8.0, 95.0, vDist);
+
+  // Base dark rich soil underneath the wheat
+  float soilNoise = gpn(vW.xz * 0.35);
+  vec3 soil = mix(vec3(0.028, 0.016, 0.008), vec3(0.048, 0.028, 0.014), soilNoise);
+
+  // Procedural golden wheat carpet that blends seamlessly with instanced grass blades
+  float windWave = sin(vW.x * 0.09 - uTime * 0.85 + vW.z * 0.05) * 0.5 + 0.5;
+
+  // Distance-adaptive speckle frequency so distant field stays a lively organic texture rather than muddy blur
+  float freq = 4.5 * exp(-0.012 * max(vDist - 12.0, 0.0)) + 0.65;
+  vec2 sc = vW.xz * freq;
+  mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
+  float grain1 = gpn(sc);
+  float grain2 = gpn(rot * sc * 1.41 + vec2(17.3, 31.7));
+  float grain = grain1 * 0.6 + grain2 * 0.4;
+
+  // Golden to olive straw colors matching grassFrag
+  vec3 straw = mix(vec3(0.58, 0.36, 0.09), vec3(0.68, 0.48, 0.15), grain);
+
+  // Accretion disk illumination - broad celestial glow across the landscape
+  float diskBroad = exp(-pow(vW.x / 180.0, 2.0));
+  float diskAmbient = 0.45 + 0.55 * diskBroad;
+  float diskSideLit = 0.65 + 0.35 * smoothstep(40.0, -80.0, vW.x);
+
+  // Straw lighting and horizon glow
+  vec3 strawGlow = mix(uMid, uHot, 0.65) * (0.35 + 0.65 * windWave) * diskSideLit * diskAmbient;
+  vec3 carpet = mix(soil, straw * 0.32 + strawGlow * 0.52, smoothstep(0.12, 0.85, grain + windWave * 0.35));
+
+  // Shadow anchors beneath props to eliminate any floating look
+  // House footprint around (22, -92)
+  vec2 dH = abs(vW.xz - vec2(22.0, -92.0));
+  float houseShadow = 1.0 - smoothstep(1.5, 0.0, max(dH.x - 7.5, 0.0) + max(dH.y - 5.5, 0.0));
+  // Truck footprint around (-2, -72)
+  vec2 dT = abs(vW.xz - vec2(-2.0, -72.0));
+  float truckShadow = 1.0 - smoothstep(1.2, 0.0, max(dT.x - 3.2, 0.0) + max(dT.y - 1.8, 0.0));
+  // Windmill footprint around (-24, -84)
+  float dM = length(vW.xz - vec2(-24.0, -84.0));
+  float millShadow = 1.0 - smoothstep(1.2, 0.0, max(dM - 2.8, 0.0));
+  float shadow = clamp(houseShadow * truckShadow * millShadow, 0.18, 1.0);
+  carpet *= shadow;
+
+  // Distant horizon glow: the blazing accretion disk kisses the ground plane at the horizon
+  float horizonGlow = smoothstep(50.0, 480.0, -vW.z);
+  carpet = mix(carpet, mix(uMid * 0.4, uHot * 0.55, 0.7) * (0.4 + 0.6 * diskBroad), horizonGlow * 0.65);
+
+  // Seamless fade into the true horizon at vast distance (Z ~ 800-1600m), NEVER cutting near props
+  float alpha = 1.0 - smoothstep(800.0, 1600.0, -vW.z);
+  gl_FragColor = vec4(carpet, alpha);
 }`;
 
 // ---- Viola: lavender field ------------------------------------------------
