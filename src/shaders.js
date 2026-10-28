@@ -346,6 +346,31 @@ void main() {
   gl_FragColor = vec4(uHot * 1.6 * a * a * max(vA, 0.0), 1.0);
 }`;
 
+export const smokeVert = /* glsl */ `
+uniform float uTime;
+uniform float uPx;
+attribute float aSeed;
+varying float vA;
+void main() {
+  float life = fract(uTime * 0.06 + aSeed);
+  vec3 p = position;
+  p.y += life * 7.5;
+  p.x += life * life * 6.0 + sin(life * 6.0 + aSeed * 20.0) * 0.35 * life;
+  p.z += sin(aSeed * 30.0) * 0.3 * life;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = uPx * 1570.0 * (0.6 + 3.0 * life) / max(-mv.z, 1.0);
+  vA = smoothstep(0.0, 0.12, life) * (1.0 - life) * 0.55;
+}`;
+
+export const smokeFrag = /* glsl */ `
+varying float vA;
+void main() {
+  float d = length(gl_PointCoord - 0.5) * 2.0;
+  float a = smoothstep(1.0, 0.0, d);
+  gl_FragColor = vec4(vec3(0.03, 0.018, 0.011), a * a * vA);
+}`;
+
 export const gradeShader = {
   uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uTexel: { value: [1 / 1920, 1 / 1080] }, uHoleUV: { value: [0.5, 0.7] }, uRays: { value: 1.0 } },
   vertexShader: /* glsl */ `

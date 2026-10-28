@@ -7,7 +7,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import {
   skyVert, skyFrag, grassVert, grassFrag, groundVert, groundFrag,
-  emberVert, emberFrag, rimVert, rimFrag, gradeShader
+  emberVert, emberFrag, rimVert, rimFrag, smokeVert, smokeFrag, gradeShader
 } from './shaders.js';
 
 const HORIZON = -0.40;   // screen-space y of the horizon, shared by sky shader and 3D camera
@@ -139,15 +139,17 @@ function buildFarm() {
   g.add(body, roof, chimney, porch);
   const wins = [[-1.7, 1.5], [-0.55, 1.5], [0.7, 1.5], [1.7, 1.5], [-0.8, 3.3], [0.8, 3.3]];
   wins.forEach(([x, y], i) => {
-    if (i > 3) { y = 2.95; }
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(i > 3 ? 0.4 : 0.55, i > 3 ? 0.5 : 0.7), windowMat);
-    m.position.set(x, y, 1.61);
+    const attic = i > 3;                      // the two small windows sit on the gable face above the wall
+    if (attic) { y = 3.25; }
+    const zWin = attic ? 1.87 : 1.61;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(attic ? 0.4 : 0.55, attic ? 0.5 : 0.7), windowMat);
+    m.position.set(x, y, zWin);
     g.add(m);
     // window frame: cross bars and a sill
-    const w = i > 3 ? 0.4 : 0.55, hh = i > 3 ? 0.5 : 0.7;
+    const w = attic ? 0.4 : 0.55, hh = attic ? 0.5 : 0.7;
     for (const [bw, bh, bx, by] of [[w, 0.05, 0, 0], [0.05, hh, 0, 0], [w + 0.14, 0.07, 0, -hh / 2 - 0.03], [w + 0.14, 0.05, 0, hh / 2 + 0.02]]) {
       const bar = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), dark);
-      bar.position.set(x + bx, y + by, 1.62);
+      bar.position.set(x + bx, y + by, zWin + 0.01);
       g.add(bar);
     }
   });
@@ -160,6 +162,10 @@ function buildFarm() {
     post.position.set(px, 0.75, 2.55);
     g.add(post);
   }
+  const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.1, 1.4), dark);   // slanted porch roof
+  porchRoof.position.set(-0.6, 2.05, 2.2);
+  porchRoof.rotation.x = 0.14;
+  g.add(porchRoof);
   const pool = lightPool(9, 5, new THREE.Color(1.0, 0.55, 0.18), 1.3);
   pool.position.set(0, 0.05, 4.4);
   g.add(pool);
@@ -205,6 +211,7 @@ function buildTruck() {
   const lamp = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), windowMat);   // one dim tail lamp
   lamp.position.set(-2.52, 1.0, 0.7); lamp.rotation.y = -Math.PI / 2;
   g.add(lamp);
+  for (const z of [-1.05, 1.05]) add(new THREE.BoxGeometry(0.14, 0.22, 0.1), 1.2, 1.75, z);   // side mirrors
   // headlights glowing toward +x, with a pool of light on the grass ahead of the truck
   for (const z of [-0.65, 0.65]) {
     const hl = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), windowMat);
@@ -310,6 +317,7 @@ scene.add(farm, windmill);
 
 // ---- embers ----------------------------------------------------------
 let embers = null;
+let smoke = null;
 function buildEmbers(count) {
   if (embers) { scene.remove(embers); embers.geometry.dispose(); }
   const pos = new Float32Array(count * 3);
@@ -330,6 +338,22 @@ function buildEmbers(count) {
   }));
   embers.frustumCulled = false;
   scene.add(embers);
+}
+
+// chimney smoke: soft dark puffs that rise, swell and drift with the wind
+{
+  const n = 36, pos = new Float32Array(n * 3), seed = new Float32Array(n);
+  for (let i = 0; i < n; i++) { pos.set([10.5, 4.9, FAR_Z + 1.8], i * 3); seed[i] = i / n; }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+  smoke = new THREE.Points(geo, new THREE.ShaderMaterial({
+    vertexShader: smokeVert, fragmentShader: smokeFrag,
+    uniforms: { uTime: U.uTime, uPx: { value: 1 } }, transparent: true, depthWrite: false
+  }));
+  smoke.frustumCulled = false;
+  smoke.renderOrder = 5;
+  scene.add(smoke);
 }
 
 // ---- post ------------------------------------------------------------
@@ -397,6 +421,7 @@ function resize() {
   fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
   grade.uniforms.uTexel.value = [1 / (w * pr), 1 / (h * pr)];
   if (embers) embers.material.uniforms.uPx.value = h * pr / 1080;
+  if (smoke) smoke.material.uniforms.uPx.value = h * pr / 1080;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   // lens shift: put the 3D horizon at the same screen height as the sky shader's horizon
