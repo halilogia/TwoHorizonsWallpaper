@@ -375,14 +375,14 @@ void main() {
   vec3 carpet = mix(soil, straw * 0.32 + strawGlow * 0.52, smoothstep(0.12, 0.85, grain + windWave * 0.35));
 
   // Shadow anchors beneath props to eliminate any floating look
-  // House footprint around (22, -92)
-  vec2 dH = abs(vW.xz - vec2(22.0, -92.0));
-  float houseShadow = 1.0 - smoothstep(1.5, 0.0, max(dH.x - 7.5, 0.0) + max(dH.y - 5.5, 0.0));
-  // Truck footprint around (-2, -72)
-  vec2 dT = abs(vW.xz - vec2(-2.0, -72.0));
+  // House footprint around (7.2, -88.0)
+  vec2 dH = abs(vW.xz - vec2(7.2, -88.0));
+  float houseShadow = 1.0 - smoothstep(1.6, 0.0, max(dH.x - 7.2, 0.0) + max(dH.y - 5.2, 0.0));
+  // Truck footprint around (-4.8, -84.0)
+  vec2 dT = abs(vW.xz - vec2(-4.8, -84.0));
   float truckShadow = 1.0 - smoothstep(1.2, 0.0, max(dT.x - 3.2, 0.0) + max(dT.y - 1.8, 0.0));
-  // Windmill footprint around (-24, -84)
-  float dM = length(vW.xz - vec2(-24.0, -84.0));
+  // Windmill footprint around (-48.0, -115.0)
+  float dM = length(vW.xz - vec2(-48.0, -115.0));
   float millShadow = 1.0 - smoothstep(1.2, 0.0, max(dM - 2.8, 0.0));
   float shadow = clamp(houseShadow * truckShadow * millShadow, 0.18, 1.0);
   carpet *= shadow;

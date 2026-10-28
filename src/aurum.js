@@ -12,12 +12,12 @@ export const AURUM = {
   id: 'aurum',
   name: 'Aurum', tagline: 'The last farm before the event horizon',
   hot: [1.00, 0.82, 0.50], mid: [1.00, 0.45, 0.10], cool: [0.50, 0.12, 0.03],
-  camD: 17.8, inc: 0.10, rOut: 9, dopp: 1, gain: 1.0, sky: 0,
+  camD: 18.0, inc: 0.10, rOut: 9, dopp: 1, gain: 1.0, sky: 0,
   skyTop: [0, 0, 0], skyLow: [0, 0, 0], band: [0, 0, 0],
   // camera rig read off the reference video (frames 020-025): [alt m, lens mm, horizon height on screen]. Climbing widens the lens and pulls back a little.
-  rig: [[1.9, 107, -0.35], [4.05, 39, -0.57], [13, 29, -0.52], [20, 26, -0.38], [24, 25, -0.28]],
-  altMin: 1.9, altMax: 24, yawMax: 0.55,
-  alt: 4.05, hs0: -0.57, hs1: -0.28, dolly: 1.2, mm: 39, holeAz: -0.04, holeEl: 0.078,
+  rig: [[1.9, 107, -0.32], [4.05, 39, -0.57], [13, 29, -0.52], [20, 26, -0.42], [32, 23, -0.36]],
+  altMin: 1.9, altMax: 32, yawMax: 0.55,
+  alt: 4.05, hs0: -0.57, hs1: -0.36, dolly: 1.2, mm: 39, holeAz: -0.04, holeEl: 0.078,
   bloom: 0.4, bloomRadius: 0.25, exposure: 0.85
 };
 
@@ -31,7 +31,7 @@ export function createAurum(U) {
   ground.renderOrder = -1;
   aurum.add(ground);
 
-  const TRUCK_AT = new THREE.Vector3(-2.0, -0.06, -72), HOUSE_AT = new THREE.Vector3(22, -0.04, -92), MILL_AT = new THREE.Vector3(-24, -0.04, -84);
+  const TRUCK_AT = new THREE.Vector3(-4.8, -0.06, -84), HOUSE_AT = new THREE.Vector3(7.2, -0.04, -88), MILL_AT = new THREE.Vector3(-48, -0.04, -115);
   /** @type {THREE.Mesh | null} */
   let grass = null;
   function buildGrass(count) {
@@ -164,7 +164,7 @@ export function createAurum(U) {
 
   const truck = new THREE.Group();
   truck.position.copy(TRUCK_AT);
-  truck.rotation.y = 0.28;
+  truck.rotation.y = 0.12;
   attachModel(truck, truckGlb, 1.15, (g) => {
     const beam = lightPool(7, 3, new THREE.Color(1.0, 0.85, 0.6), 0.9);   // headlight spill on the grass
     beam.position.set(7.0, 0.05, 0);
@@ -175,7 +175,7 @@ export function createAurum(U) {
   let smoke = null;
   const farm = new THREE.Group();
   farm.position.copy(HOUSE_AT);
-  farm.rotation.y = -0.08;
+  farm.rotation.y = -0.03;
   attachModel(farm, houseGlb, 2.1, (g, root) => {
     const pool = lightPool(18, 10, new THREE.Color(1.0, 0.55, 0.18), 1.3);   // window light on the yard
     pool.position.set(0, 0.05, 9);

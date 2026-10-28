@@ -17,7 +17,7 @@ export function startApp(worlds) {
   const SCENE_LIST = worlds.map((w) => w.config.id);
   for (const w of worlds) { SCENES[w.config.id] = w.config; }
   const FIRST = SCENE_LIST[0];
-  const ALT_MAX = 16, ALT_MIN = 0.7, MM_MIN = 23, MM_MAX = 107;   // per-scene altMin / altMax override the climb limits
+  const ALT_MAX = 32, ALT_MIN = 0.7, MM_MIN = 23, MM_MAX = 107;   // per-scene altMin / altMax override the climb limits
   // A scene with a `rig` (keyframes [alt m, lens mm, horizon height on screen], ascending alt) ties lens and height together: climbing widens the lens,
   // dropping down zooms in, and the wheel / lens ruler move along the same curve. Interpolated linearly in log(alt).
   function rigAt(rig, alt) {
