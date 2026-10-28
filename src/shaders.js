@@ -31,7 +31,9 @@ uniform vec3 uBandCol;     // light of the haze lying on the far ground (Viola)
 #define STEPS 240
 #endif
 
-const float RIN = 3.0;
+uniform float uRIn;        // inner edge of the disk (3 = the innermost stable orbit)
+uniform float uRings;      // how many times a ray may cross the disk plane: 1 = only the primary image, no thin photon ring inside the shadow
+#define RIN uRIn
 const float K0 = 0.245;    // default lens (49 mm): the screen scale the water ripples and meteors were tuned for
 
 vec3 gR; vec3 gU; vec3 gF; // frame attached to the hole: right, up, towards the hole
@@ -80,12 +82,12 @@ vec3 background(vec3 d) {
     vec3 id = floor(g);
     vec3 f = fract(g) - 0.5;
     float hh = h31(id + float(L) * 17.0);
-    float on = step(0.93 - 0.10 * band, hh);
+    float on = step(0.90 - 0.10 * band, hh);   // the reference sky is dense with small white stars
     vec3 off = (vec3(h31(id + 3.1), h31(id + 5.7), h31(id + 9.3)) - 0.5) * 0.6;
     float dd = length(f - off);
     float tw = 0.7 + 0.3 * sin(uTime * (1.0 + hh * 5.0) + hh * 60.0);
     float s = on * smoothstep(0.11, 0.0, dd) * (0.35 + hh) * tw;
-    vec3 tint = mix(vec3(0.75, 0.88, 1.0), vec3(1.0, 0.78, 0.55), h31(id + 9.0));
+    vec3 tint = mix(vec3(0.95, 0.95, 1.0), vec3(1.0, 0.84, 0.62), h31(id + 9.0) * 0.6);
     acc += tint * s * (L == 0 ? 2.6 : 2.0);
   }
   // galactic band: layered cloud noise, dark dust lanes and colour drifting between the palette's tones (only evaluated where the band is)
@@ -94,7 +96,7 @@ vec3 background(vec3 d) {
   float neb = vn(w * 1.3 + vn(w * 2.0) * 1.2) * 0.55 + vn(d * 9.0) * 0.3 + vn(d * 22.0) * 0.15;
   float dust = smoothstep(0.52, 0.78, vn(d * 6.5 + 3.0)) * band;
   vec3 tone = mix(uCool * 1.4, uHot, smoothstep(0.3, 0.8, vn(d * 2.2 + 9.0)));
-  acc += tone * band * (0.12 + 1.1 * neb * neb) * 0.12 * (1.0 - 0.75 * dust);
+  acc += tone * band * (0.12 + 1.1 * neb * neb) * 0.015 * (1.0 - 0.75 * dust);   // the reference sky is clean black: only a trace of the band, lensed into a faint ring
   return acc * uStars * (1.0 - 0.92 * uSky);
 }
 
@@ -143,13 +145,14 @@ vec3 trace(vec3 rdW) {
 
   // rays that pass far from the hole only get a weak-field deflection
   vec3 perp = ro - dot(ro, rd) * rd;
-  float b = length(perp);
+  float b = max(length(perp), 1e-3);
   vec3 vel = rd;
   bool swallowed = false;
   vec3 col = vec3(0.0);
   float trans = 1.0;
+  float crossings = 0.0;
   if (b > uROut * 1.8 + 6.0) {
-    vel = normalize(rd - normalize(perp) * (2.0 / b));
+    vel = normalize(rd - perp / b * (2.0 / b));
   } else {
     vec3 pos = ro;
     for (int i = 0; i < STEPS; i++) {
@@ -167,6 +170,8 @@ vec3 trace(vec3 rdW) {
         vec3 hit = mix(pos, np, t);
         float rr = length(hit.xz);
         if (rr > RIN * 0.9 && rr < uROut) {
+          crossings += 1.0;
+          if (crossings > uRings) break;
           vec4 d = diskSample(hit, nv);
           col += trans * d.rgb;
           trans *= 1.0 - d.a;
@@ -207,7 +212,7 @@ vec3 sky(vec3 d) {
   float hx = ql.x / 0.39 * (uCamD / 22.0);
 
   vec3 night = uCool * 0.03 * (1.0 - clamp(eE * 0.6, 0.0, 1.0));
-  night += uMid * 0.12 * exp(-eE / 0.22) * exp(-abs(hx) * 0.25);
+  night += uMid * 0.34 * exp(-eE / 0.26) * exp(-abs(hx) * 0.22);   // the gold haze that lies on the horizon and runs unbroken into the ground
   night *= smoothstep(0.9 * R, 1.07 * R, length(ql));   // the shadow stays black
   vec3 dusk = mix(uSkyLow, uSkyTop, smoothstep(0.0, 1.4, eE));
   dusk += uBandCol * 0.55 * exp(-eE * 9.0);
@@ -239,9 +244,12 @@ void main() {
     float px = az / K0;
     float rip = pn(vec2(px * 2.5 + uTime * 0.2, dy * 70.0 - uTime * 0.6), 1000.0) - 0.5;
     float streak = 0.55 + 0.9 * pn(vec2(px * 4.0, dy * 200.0 + uTime * 0.4), 1000.0);
-    vec3 rm = normalize(vec3(rd.x + rip * 0.03 * (dy * 8.0 + 0.2) * K0, -rd.y, rd.z));
+    vec3 rm = normalize(vec3(rd.x + rip * 0.012 * (dy * 5.0 + 0.2) * K0, -rd.y, rd.z));
     vec3 refl = sky(rm);                     // one trace per water pixel, shared by the Aurum water and the Viola haze
-    vec3 water = refl * 0.8 * streak + uCool * 0.012;
+    // the reference ground is a calm golden mirror: brightest at the horizon, sinking to dark amber towards the camera, only a soft glow under the hole
+    float sink = exp(-dy * 3.0);
+    float hxs = dot(rm, gR) / max(dot(rm, gF), 0.05) / 0.39;
+    vec3 water = (refl * 0.8 * streak * exp(-dy * 8.0) + uMid * 0.16 * exp(-abs(hxs) * 0.35) * (0.7 + 0.5 * streak)) * sink + uCool * 0.012;
     // glints dancing on the water under the hole
     float gl = pow(pn(vec2(px * 40.0 + uTime * 0.7, dy * 520.0 - uTime * 1.6), 1000.0), 9.0);
     float hxw = dot(rm, gR) / max(dot(rm, gF), 0.05) / 0.39;
@@ -251,13 +259,15 @@ void main() {
     vec3 haze = uBandCol * (0.82 + 0.30 * exp(-dy * 2.5)) + refl * 0.10;
     col = mix(water, haze, uSky);
   }
-  gl_FragColor = vec4(col, 1.0);
+  if (any(isnan(col)) || any(isinf(col))) col = vec3(0.0);   // one bad ray must not reach the bloom blur: it would smear NaN over the whole frame
+  gl_FragColor = vec4(min(col, vec3(64.0)), 1.0);
 }`;
 
 // ---- Aurum: wheat ---------------------------------------------------------
 export const grassVert = /* glsl */ `
 uniform float uTime;
 uniform float uWind;
+uniform float uWheat;
 attribute vec3 aInst;   // x, z, seed
 varying float vH;
 varying float vDepth;
@@ -273,8 +283,8 @@ void main() {
   float yaw = fract(seed * 91.7) * 3.14159;
   vec2 sideDir = vec2(cos(yaw), sin(yaw));
   float tall = step(0.93, fract(seed * 37.1));     // the odd tall seed stalk
-  float height = mix(0.65, 1.35, fract(seed * 7.31)) * (1.0 + tall * 0.5);
-  float width = clamp(0.032 + depth * 0.0006, 0.025, 0.08) * (1.0 - hgt * 0.88);
+  float height = mix(0.55, 1.05, fract(seed * 7.31)) * (1.0 + tall * 0.5) * uWheat;
+  float width = clamp(0.022 + depth * 0.0005, 0.02, 0.06) * (1.0 - hgt * 0.88);
   vec3 pos = vec3(aInst.x + sideDir.x * side * width, hgt * height, aInst.y + sideDir.y * side * width);
   float w = sin(uTime * uWind * 1.3 + aInst.x * 0.35 + aInst.y * 0.2 + seed * 6.0) * 0.5
           + sin(uTime * uWind * 2.1 + aInst.x * 0.8 + seed * 11.0) * 0.5;
@@ -284,7 +294,7 @@ void main() {
   pos.z += (w * 0.06 + gust * 0.12) * bend;
   pos.y -= bend * 0.12 * abs(gust);
   vec4 mv = viewMatrix * vec4(pos, 1.0);
-  gl_Position = projectionMatrix * mv;
+  gl_Position = uWheat < 0.02 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * mv;   // flat ground on the far lenses: nothing to draw
   vH = hgt; vDepth = length(mv.xyz); vX = pos.x; vSeed = seed; vFace = abs(cos(yaw));
 }`;
 
@@ -345,55 +355,20 @@ float gpn(vec2 p) {
 
 void main() {
   float vDist = length(vW - cameraPosition);
-  float far = smoothstep(8.0, 95.0, vDist);
-
-  // Base dark rich soil underneath the wheat
-  float soilNoise = gpn(vW.xz * 0.35);
-  vec3 soil = mix(vec3(0.028, 0.016, 0.008), vec3(0.048, 0.028, 0.014), soilNoise);
-
-  // Procedural golden wheat carpet that blends seamlessly with instanced grass blades
-  float windWave = sin(vW.x * 0.09 - uTime * 0.85 + vW.z * 0.05) * 0.5 + 0.5;
-
-  // Distance-adaptive speckle frequency so distant field stays a lively organic texture rather than muddy blur
-  float freq = 4.5 * exp(-0.012 * max(vDist - 12.0, 0.0)) + 0.65;
-  vec2 sc = vW.xz * freq;
-  mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
-  float grain1 = gpn(sc);
-  float grain2 = gpn(rot * sc * 1.41 + vec2(17.3, 31.7));
-  float grain = grain1 * 0.6 + grain2 * 0.4;
-
-  // Golden to olive straw colors matching grassFrag
-  vec3 straw = mix(vec3(0.58, 0.36, 0.09), vec3(0.68, 0.48, 0.15), grain);
-
-  // Accretion disk illumination - broad celestial glow across the landscape
-  float diskBroad = exp(-pow(vW.x / 180.0, 2.0));
-  float diskAmbient = 0.45 + 0.55 * diskBroad;
-  float diskSideLit = 0.65 + 0.35 * smoothstep(40.0, -80.0, vW.x);
-
-  // Straw lighting and horizon glow
-  vec3 strawGlow = mix(uMid, uHot, 0.65) * (0.35 + 0.65 * windWave) * diskSideLit * diskAmbient;
-  vec3 carpet = mix(soil, straw * 0.32 + strawGlow * 0.52, smoothstep(0.12, 0.85, grain + windWave * 0.35));
-
-  // Shadow anchors beneath props to eliminate any floating look
-  // House footprint around (7.2, -88.0)
-  vec2 dH = abs(vW.xz - vec2(7.2, -88.0));
-  float houseShadow = 1.0 - smoothstep(1.6, 0.0, max(dH.x - 7.2, 0.0) + max(dH.y - 5.2, 0.0));
-  // Truck footprint around (-4.8, -84.0)
-  vec2 dT = abs(vW.xz - vec2(-4.8, -84.0));
-  float truckShadow = 1.0 - smoothstep(1.2, 0.0, max(dT.x - 3.2, 0.0) + max(dT.y - 1.8, 0.0));
-  // Windmill footprint around (-48.0, -115.0)
-  float dM = length(vW.xz - vec2(-48.0, -115.0));
-  float millShadow = 1.0 - smoothstep(1.2, 0.0, max(dM - 2.8, 0.0));
-  float shadow = clamp(houseShadow * truckShadow * millShadow, 0.18, 1.0);
-  carpet *= shadow;
-
-  // Distant horizon glow: the blazing accretion disk kisses the ground plane at the horizon
-  float horizonGlow = smoothstep(50.0, 480.0, -vW.z);
-  carpet = mix(carpet, mix(uMid * 0.4, uHot * 0.55, 0.7) * (0.4 + 0.6 * diskBroad), horizonGlow * 0.65);
-
-  // Seamless fade into the true horizon at vast distance (Z ~ 800-1600m), NEVER cutting near props
-  float alpha = 1.0 - smoothstep(800.0, 1600.0, -vW.z);
-  gl_FragColor = vec4(carpet, alpha);
+  // Dark amber soil under the camera, with the odd spark where a stalk tip catches the disk. It fades out with distance: beyond ~90 m the ground is
+  // the glassy water of the sky shader (glints streaking toward the hole), which is what the reference shows from the horizon down to the farm.
+  float soilNoise = gpn(vW.xz * 0.5);
+  vec3 soil = mix(vec3(0.012, 0.007, 0.004), vec3(0.03, 0.017, 0.008), soilNoise);
+  soil += uMid * 0.035 * smoothstep(60.0, 8.0, vDist) * (0.4 + soilNoise);
+  vec2 cell = floor(vW.xz * vec2(7.0, 4.0));
+  float spark = step(0.965, gh21(cell)) * smoothstep(40.0, 4.0, vDist);
+  soil += mix(uMid, uHot, 0.6) * spark * (0.5 + 1.1 * gh21(cell + 3.7));
+  // shadow anchors under the props
+  vec2 dH = abs(vW.xz - vec2(14.0, -62.0));
+  vec2 dT = abs(vW.xz - vec2(-3.7, -38.0));
+  soil *= clamp(1.0 - 0.7 * (1.0 - smoothstep(0.0, 1.5, max(dH.x - 8.2, 0.0) + max(dH.y - 5.5, 0.0))) - 0.7 * (1.0 - smoothstep(0.0, 1.2, max(dT.x - 3.3, 0.0) + max(dT.y - 1.3, 0.0))), 0.2, 1.0);
+  float alpha = 1.0 - smoothstep(18.0, 95.0, vDist);
+  gl_FragColor = vec4(soil, alpha);
 }`;
 
 // ---- Viola: lavender field ------------------------------------------------
@@ -562,7 +537,7 @@ void main() {
   float rim = pow(f, 3.6);
   float side = 0.55 + 0.6 * smoothstep(25.0, -35.0, vW.x);   // the left of the frame sits closer to the bright disk side
   float top = 0.7 + 0.5 * smoothstep(0.0, 6.0, vW.y);
-  vec3 col = uBase + mix(uMid, uHot, 0.35) * rim * 1.5 * side * top * uRim;
+  vec3 col = uBase + mix(uMid, uHot, 0.2) * rim * 1.1 * side * top * uRim;
   gl_FragColor = vec4(col, 1.0);
 }`;
 

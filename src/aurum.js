@@ -11,12 +11,21 @@ export const AURUM = {
   id: 'aurum',
   name: 'Aurum', tagline: 'The last farm before the event horizon',
   hot: [1.00, 0.85, 0.52], mid: [1.00, 0.48, 0.12], cool: [0.52, 0.14, 0.03],
-  camD: 18.0, inc: 0.10, rOut: 9.2, dopp: 1.05, gain: 1.15, sky: 0,
+  camD: 18.0, inc: 0.10, rOut: 8.4, dopp: 1.05, gain: 1.1, sky: 0,
   skyTop: [0, 0, 0], skyLow: [0, 0, 0], band: [0, 0, 0],
-  // camera rig read off reference video (frames 020-025): [alt m, lens mm, horizon height on screen].
-  rig: [[1.92, 100, -0.32], [4.05, 39, -0.57], [13, 29, -0.52], [20, 26, -0.42], [32, 23, -0.36]],
-  altMin: 1.92, altMax: 32, yawMax: 0.55,
-  alt: 4.05, hs0: -0.57, hs1: -0.36, dolly: 1.2, mm: 39, holeAz: -0.04, holeEl: 0.078,
+  // camera rig measured off the reference video (frames 020-028), see rigAt() in app.js:
+  // [alt on the HUD (m), lens on the ruler (mm), horizon height on screen, camera y (m), camera z (m, dolly back), yaw bias (rad), lens the camera really uses (mm), camera x (m)].
+  // Frame 025 (107 mm): truck 38 m ahead, house front 54 m, camera looks 0.085 rad right of the hole; frame 023: house 170 m away, camera 8.5 m up.
+  rig: [
+    [1.9, 107, -0.353, 1.9, 0, 0.085, 107, 0],
+    [2.75, 55, -0.59, 1.9, 33, 0.04, 63, -4],
+    [4.05, 39, -0.57, 5.3, 104, 0, 44, 0],
+    [13, 29, -0.52, 7.5, 108, 0, 39, 0],
+    [20, 26, -0.52, 8.0, 108, 0, 37, 0],
+    [32, 23, -0.54, 8.5, 106, 0, 35, 0]
+  ],
+  altMin: 1.9, altMax: 32, yawMax: 0.55,
+  alt: 4.05, hs0: -0.57, hs1: -0.36, dolly: 0, mm: 39, holeAz: -0.04, holeEl: 0.078,
   bloom: 0.65, bloomRadius: 0.35, exposure: 0.92
 };
 
@@ -24,14 +33,15 @@ export function createAurum(U) {
   const aurum = new THREE.Group();
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(3600, 2400).rotateX(-Math.PI / 2).translate(0, -0.01, -1100),
+    new THREE.PlaneGeometry(900, 500).rotateX(-Math.PI / 2).translate(0, -0.01, -150),   // dark soil only near the camera; further out it fades to the water of the sky shader
     new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U, transparent: true, depthWrite: true })
   );
   ground.renderOrder = -1;
   aurum.add(ground);
 
-  const TRUCK_AT = new THREE.Vector3(-4.8, -0.06, -84);
-  const HOUSE_AT = new THREE.Vector3(7.2, -0.04, -88);
+  // where the farm stands, measured off the reference: truck 38 m and house front 54 m from the close-up camera (frame 025)
+  const TRUCK_AT = new THREE.Vector3(-3.7, -0.06, -38);
+  const HOUSE_AT = new THREE.Vector3(15.5, -0.04, -62);
 
   /** @type {THREE.Mesh | null} */
   let grass = null;
@@ -46,21 +56,12 @@ export function createAurum(U) {
     base.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     base.setIndex(idx);
     const inst = new Float32Array(count * 3);
+    // A foreground band only (frame 028): ends ~50 m ahead of the close-up camera and runs back past the dollied camera (z up to +62), so no bare patch
+    // shows below it on the mid lenses. Denser towards the camera, where the blades are big on screen. Beyond the band the ground is the glassy water of the sky shader.
     for (let i = 0; i < count; i++) {
-      const rz = Math.random();
-      // Continuous non-linear depth from near camera (-0.5m) to far distance (-175m)
-      const zDist = rz < 0.65
-        ? 0.5 + 74.5 * Math.pow(rz / 0.65, 1.45)
-        : 75.0 + 100.0 * Math.pow((rz - 0.65) / 0.35, 1.25);
-      const z = -zDist;
-
-      // Wide horizontal spread: never a narrow frustum wedge!
-      // Minimum 75m half-width up close, widening to 190m in the distance.
-      const spread = 75.0 + zDist * 0.65;
-      const rx = (Math.random() - 0.5) * 2.0;
-      const x = Math.sign(rx) * Math.pow(Math.abs(rx), 0.88) * spread;
-
-      inst[i * 3] = x;
+      const z = 62 - 114 * Math.pow(Math.random(), 1.3);
+      const spread = 40 + (62 - z) * 0.5;
+      inst[i * 3] = (Math.random() * 2 - 1) * spread;
       inst[i * 3 + 1] = z;
       inst[i * 3 + 2] = Math.random();
     }
@@ -78,7 +79,7 @@ export function createAurum(U) {
     vertexShader: rimVert, fragmentShader: rimFrag,
     uniforms: { uHot: U.uHot, uMid: U.uMid, uBase: { value: new THREE.Color(0.016, 0.010, 0.007) }, uRim: { value: 1 } }
   });
-  const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5.5, 2.4, 0.6), toneMapped: false });
+  const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.15, 0.3), toneMapped: false });   // warm lamplight that keeps its mullions (the reference windows are not blown out)
 
   // soft additive light pool (house windows, truck headlights) laid on the ground
   function glowTexture() {
@@ -162,9 +163,9 @@ export function createAurum(U) {
   const truck = new THREE.Group();
   truck.position.copy(TRUCK_AT);
   truck.rotation.y = 0.12;
-  attachModel(truck, truckGlb, 1.15, (g) => {
-    const beam = lightPool(8, 4, new THREE.Color(1.0, 0.85, 0.6), 1.0);   // headlight spill on the grass
-    beam.position.set(7.0, 0.05, 0);
+  attachModel(truck, truckGlb, 0.85, (g) => {
+    const beam = lightPool(6, 3, new THREE.Color(1.0, 0.85, 0.6), 1.0);   // headlight spill on the grass
+    beam.position.set(-5.2, 0.05, 0);
     g.add(beam);
   });
 
@@ -173,13 +174,13 @@ export function createAurum(U) {
   const farm = new THREE.Group();
   farm.position.copy(HOUSE_AT);
   farm.rotation.y = -0.03;
-  attachModel(farm, houseGlb, 2.1, (g, root) => {
-    const pool = lightPool(18, 10, new THREE.Color(1.0, 0.55, 0.18), 1.4);   // window light on the yard
-    pool.position.set(0, 0.05, 9);
+  attachModel(farm, houseGlb, 1.5, (g, root) => {
+    const pool = lightPool(13, 7, new THREE.Color(1.0, 0.55, 0.18), 1.2);   // window light on the yard
+    pool.position.set(0, 0.05, 6.5);
     g.add(pool);
     const dog = buildDog();
-    dog.position.set(-8.1, 0.5, 4.9);   // at the left end of the porch, in front of the wall so it reads against the glow
-    dog.scale.setScalar(1.15);
+    dog.position.set(-5.4, 0.36, 3.6);   // at the left end of the porch, in front of the wall so it reads against the glow
+    dog.scale.setScalar(0.85);
     g.add(dog);
     const top = topOf(root, 0.15);                                           // chimney: smoke starts here
     if (!smoke) return;
@@ -241,7 +242,7 @@ export function createAurum(U) {
     },
     update(t) {
       const fl = 0.92 + 0.08 * Math.sin(t * 7.0) * Math.sin(t * 3.1);   // lamplight flicker
-      windowMat.color.setRGB(5.5 * fl, 2.4 * fl, 0.6 * fl);
+      windowMat.color.setRGB(2.6 * fl, 1.15 * fl, 0.3 * fl);
     }
   };
 }

@@ -27,7 +27,7 @@ Quality (Low / Medium / High), FPS limit, Glow, Animation speed, Mouse parallax,
 
 Controls:
 - **Follow cursor** (default): the camera pans, drifts and rises a little with the pointer, no click needed. Wallpaper Engine passes mouse *movement* to a desktop wallpaper but usually swallows the *clicks* (Explorer's desktop icons take them), so the default does not depend on them.
-- **Drag** (when the host delivers button events, e.g. `interactive.bat` in a window): drag sideways = pan, drag up = climb (ALT 1.1 m → 16 m, in Viola the camera also pulls back so the astronaut stays in view), double click = reset. Works in Follow mode too.
+- **Drag** (when the host delivers button events, e.g. `interactive.bat` in a window): the cursor turns into a grab hand and the world follows it sideways, drag up = climb (Aurum: ALT 1.9 m → 32 m, lens 107 → 23 mm and the camera dollies back with it; in Viola the camera also pulls back so the astronaut stays in view), double click = reset. Works in Follow mode too.
 - **Lens**: mouse wheel, or the ruler on the right edge (23 – 107 mm). The wheel works on the desktop as well.
 - Arrow up / down also climb. With the HUD on, nothing else is shown except title, telemetry (ALT, HORIZON, time, FPS, render scale), ruler.
 

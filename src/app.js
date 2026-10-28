@@ -18,15 +18,17 @@ export function startApp(worlds) {
   for (const w of worlds) { SCENES[w.config.id] = w.config; }
   const FIRST = SCENE_LIST[0];
   const ALT_MAX = 32, ALT_MIN = 0.7, MM_MIN = 23, MM_MAX = 107;   // per-scene altMin / altMax override the climb limits
-  // A scene with a `rig` (keyframes [alt m, lens mm, horizon height on screen], ascending alt) ties lens and height together: climbing widens the lens,
-  // dropping down zooms in, and the wheel / lens ruler move along the same curve. Interpolated linearly in log(alt).
+  // A scene with a `rig` (keyframes [alt shown on the HUD, lens mm on the ruler, horizon height on screen, camera y, camera z, yaw bias, effective lens mm],
+  // ascending alt) ties lens and camera together: climbing widens the lens and dollies back, dropping down zooms in, and the wheel / lens ruler move along
+  // the same curve. Interpolated linearly in log(alt). The HUD numbers are labels; y / z / eff are what the camera really does (measured off the reference).
   function rigAt(rig, alt) {
     const a = Math.log(alt);
     let i = 1;
     while (i < rig.length - 1 && a > Math.log(rig[i][0])) i++;
-    const [a0, m0, h0] = rig[i - 1], [a1, m1, h1] = rig[i];
-    const k = Math.min(1, Math.max(0, (a - Math.log(a0)) / (Math.log(a1) - Math.log(a0))));
-    return { mm: m0 + (m1 - m0) * k, hs: h0 + (h1 - h0) * k };
+    const A = rig[i - 1], B = rig[i];
+    const k = Math.min(1, Math.max(0, (a - Math.log(A[0])) / (Math.log(B[0]) - Math.log(A[0]))));
+    const m = (n) => A[n] + (B[n] - A[n]) * k;
+    return { mm: m(1), hs: m(2), y: m(3), z: m(4), bias: m(5), eff: m(6), x: m(7) };
   }
   function altForMm(rig, mm) {   // inverse of rigAt (lens falls as alt rises)
     let i = 1;
@@ -67,6 +69,8 @@ export function startApp(worlds) {
     uCamD: { value: 17.8 },
     uInc: { value: 0.115 },
     uROut: { value: 13 },
+    uRIn: { value: 3 },
+    uRings: { value: 9 },
     uDopp: { value: 1 },
     uGain: { value: 1 },
     uSky: { value: 0 },
@@ -74,7 +78,8 @@ export function startApp(worlds) {
     uSkyLow: { value: new THREE.Color() },
     uBandCol: { value: new THREE.Color() },
     uFogD: { value: 20 },
-    uWind: { value: 1 }
+    uWind: { value: 1 },
+    uWheat: { value: 1 }   // how much of the near wheat stands up (0 = flat dark ground, the reference only shows it on the mid lenses)
   };
 
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -118,7 +123,8 @@ export function startApp(worlds) {
   let pending = null;
   let fade = 0;
   let cycleMode = false, cycleAt = 0;
-  const view = { yaw: 0, alt: SCENES[FIRST].alt, tanh: 12 / SCENES[FIRST].mm, fx: 0, fy: 0 };
+  const lensOf = (s, alt) => (s.rig ? rigAt(s.rig, alt).eff : s.mm);   // focal length the camera really uses (the HUD shows rig.mm)
+  const view = { yaw: 0, alt: SCENES[FIRST].alt, tanh: 12 / lensOf(SCENES[FIRST], SCENES[FIRST].alt), fx: 0, fy: 0 };
   const target = { yaw: 0, alt: view.alt, tanh: view.tanh };
   const cursor = { x: 0, y: 0 };   // -1..1, y up
 
@@ -128,6 +134,7 @@ export function startApp(worlds) {
     U.uHot.value.setRGB(...s.hot); U.uMid.value.setRGB(...s.mid); U.uCool.value.setRGB(...s.cool);
     U.uSkyTop.value.setRGB(...s.skyTop); U.uSkyLow.value.setRGB(...s.skyLow); U.uBandCol.value.setRGB(...s.band);
     U.uCamD.value = s.camD; U.uInc.value = s.inc; U.uROut.value = s.rOut; U.uDopp.value = s.dopp; U.uGain.value = s.gain; U.uSky.value = s.sky;
+    U.uRIn.value = s.rIn ?? 3; U.uRings.value = s.rings ?? 9;
     for (const k in WORLDS) WORLDS[k].group.visible = k === id;
     grade.uniforms.uHaze.value = s.sky;
     renderer.toneMappingExposure = s.exposure;
@@ -144,7 +151,7 @@ export function startApp(worlds) {
   }
   function resetView() {
     const s = SCENES[current];
-    target.yaw = 0; target.alt = s.alt; target.tanh = 12 / s.mm;
+    target.yaw = 0; target.alt = s.alt; target.tanh = 12 / lensOf(s, s.alt);
   }
   function requestScene(id) {
     if (id === 'cycle') {
@@ -200,28 +207,55 @@ export function startApp(worlds) {
   // but usually swallows the clicks. drag: hold the button. In follow and drag mode a held button also flies the camera, if the host delivers it:
   // drag sideways = pan, drag up = climb (ALT up to 16 m), wheel = lens, double click = reset, 1 / 2 = scenes, arrow up / down = climb.
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const evCount = { down: 0, move: 0, wheel: 0 };
-  const drag = { on: false, x: 0, y: 0 };
-  function onDown(x, y) { evCount.down++; if (settings.mode !== 'off') { drag.on = true; drag.x = x; drag.y = y; } }
-  function onUp() { drag.on = false; }
-  function onMove(x, y) {
-    evCount.move++;
-    cursor.x = (x / window.innerWidth) * 2 - 1;
-    cursor.y = -((y / window.innerHeight) * 2 - 1);
-    if (drag.on && settings.mode !== 'off') {
-      target.yaw = clamp(target.yaw + (x - drag.x) * 0.0035 * clamp(view.tanh / 0.245, 0.3, 1.4), -yawLimit(), yawLimit());   // finer pan at long lenses
-      target.alt = clamp(target.alt * Math.exp(-(y - drag.y) * 0.007), altMin(), altMax());
-      drag.x = x; drag.y = y;
-    }
+  const smooth = (a, b, x) => { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };   // GLSL smoothstep (a may be above b)
+  // Drag grabs the world: the scene follows the hand sideways (cursor shows grab / grabbing), pulling up climbs. One event path only (pointer events,
+  // mouse events only where the host has none), so a click is never counted twice; a lost button-up (cursor left the window) ends the drag on the next move.
+  const drag = { on: false, x: 0, y: 0, id: -1 };
+  const setCursor = (c) => { document.documentElement.style.cursor = settings.mode === 'off' ? 'default' : c; };
+  const hasPointer = 'PointerEvent' in window;
+  function onDown(x, y, id = -1) {
+    if (settings.mode === 'off') return;
+    drag.on = true; drag.x = x; drag.y = y; drag.id = id;
+    setCursor('grabbing');
   }
-  function onWheel(dy) {
-    evCount.wheel++;
-    if (settings.mode !== 'off') setLens(clamp(12 / target.tanh * Math.exp(-dy * 0.0008), MM_MIN, MM_MAX));
+  function onUp(id = -1) {
+    if (id !== -1 && drag.id !== -1 && id !== drag.id) return;
+    drag.on = false; drag.id = -1;
+    setCursor('grab');
   }
-  for (const t of ['pointerdown', 'mousedown']) window.addEventListener(t, (e) => onDown(e.clientX, e.clientY));
-  for (const t of ['pointerup', 'mouseup', 'mouseleave', 'blur']) window.addEventListener(t, onUp);
-  for (const t of ['pointermove', 'mousemove']) window.addEventListener(t, (e) => onMove(e.clientX, e.clientY));
-  window.addEventListener('wheel', (e) => onWheel(e.deltaY), { passive: true });
+  function onMove(x, y, buttons, id = -1) {
+    cursor.x = clamp((x / window.innerWidth) * 2 - 1, -1, 1);
+    cursor.y = clamp(-((y / window.innerHeight) * 2 - 1), -1, 1);
+    if (!drag.on || settings.mode === 'off') return;
+    if (buttons === 0 || (id !== -1 && drag.id !== -1 && id !== drag.id)) { if (buttons === 0) onUp(); return; }
+    const dx = x - drag.x, dy = y - drag.y;
+    drag.x = x; drag.y = y;
+    const lensK = clamp(view.tanh / 0.245, 0.3, 1.4);   // finer pan at long lenses: one pixel is a smaller angle
+    target.yaw = clamp(target.yaw - dx * 0.0035 * lensK, -yawLimit(), yawLimit());
+    target.alt = clamp(target.alt * Math.exp(-dy * 0.006), altMin(), altMax());
+  }
+  function onWheel(e) {
+    if (settings.mode === 'off') return;
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);   // lines / pages -> pixels
+    const s = SCENES[current];
+    if (s.rig) target.alt = clamp(target.alt * Math.exp(dy * 0.0011), altMin(), altMax());   // wheel up zooms in along the rig (lens and dolly together)
+    else setLens(clamp(12 / target.tanh * Math.exp(-dy * 0.0011), MM_MIN, MM_MAX));
+  }
+  setCursor('grab');
+  document.documentElement.style.touchAction = 'none';
+  if (hasPointer) {
+    window.addEventListener('pointerdown', (e) => { if (e.button === 0 || e.pointerType !== 'mouse') onDown(e.clientX, e.clientY, e.pointerId); });
+    window.addEventListener('pointerup', (e) => onUp(e.pointerId));
+    window.addEventListener('pointercancel', (e) => onUp(e.pointerId));
+    window.addEventListener('pointermove', (e) => onMove(e.clientX, e.clientY, e.pointerType === 'mouse' ? e.buttons : 1, e.pointerId));
+  } else {
+    window.addEventListener('mousedown', (e) => { if (e.button === 0) onDown(e.clientX, e.clientY); });
+    window.addEventListener('mouseup', () => onUp());
+    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY, e.buttons));
+  }
+  window.addEventListener('blur', () => onUp());
+  document.addEventListener('mouseleave', () => onUp());
+  window.addEventListener('wheel', onWheel, { passive: true });
   window.addEventListener('dblclick', resetView);
   window.addEventListener('keydown', (e) => {
     if (e.key === '1' || e.key === '2') { if (SCENE_LIST[Number(e.key) - 1]) requestScene(SCENE_LIST[Number(e.key) - 1]); }
@@ -268,16 +302,21 @@ export function startApp(worlds) {
     const follow = settings.mode === 'follow' && settings.parallax && !drag.on;
     const ease = freeze ? 1 : 1 - Math.exp(-dt * 6.5);
     target.yaw = clamp(target.yaw, -yawLimit(), yawLimit());
-    if (s.rig) target.tanh = 12 / rigAt(s.rig, target.alt).mm;
+    if (s.rig) target.tanh = 12 / rigAt(s.rig, target.alt).eff;
+    target.alt = clamp(isFinite(target.alt) ? target.alt : s.alt, altMin(), altMax());
     const goal = { yaw: target.yaw, alt: target.alt, tanh: target.tanh, fx: follow ? cursor.x : 0, fy: follow ? cursor.y : 0 };
     for (const k in goal) view[k] += (goal[k] - view[k]) * ease;
+    // one bad value (NaN from a lost event or a divide) would poison the camera matrix and turn the whole frame black: fall back to the scene's rest pose
+    for (const k in view) if (!isFinite(view[k])) { view[k] = k === 'alt' ? s.alt : k === 'tanh' ? 12 / lensOf(s, s.alt) : 0; target.alt = s.alt; target.yaw = 0; }
 
     // unified camera: pan with the cursor, drift slowly, climb with drag / arrow keys, a hint of lateral travel so near things slide over far ones
-    const alt = clamp(view.alt * Math.exp(view.fy * 0.4), altMin(), altMax());
+    const rg = s.rig ? rigAt(s.rig, view.alt) : null;
+    const alt = rg ? Math.max(rg.y * Math.exp(view.fy * 0.1), 1.2) : clamp(view.alt * Math.exp(view.fy * 0.4), altMin(), altMax());
     const f = clamp(Math.log(alt / s.alt) / Math.log(altMax() / s.alt), 0, 1);
-    const hs = (s.rig ? rigAt(s.rig, view.alt).hs : s.hs0 + (s.hs1 - s.hs0) * f * f * (3 - 2 * f)) - view.fy * 0.05;   // where the horizon sits on screen: looks down as the camera climbs
-    const yaw = view.yaw + view.fx * 0.09 + Math.sin(t * 0.05) * 0.02;
-    camera.position.set(view.yaw * 3.5 + view.fx * 0.7 + Math.sin(t * 0.12) * 0.7, alt, Math.sin(t * 0.06) * 0.8 + Math.max(alt - s.alt, 0) * s.dolly);   // Viola: climbing also pulls back, so the astronaut stays in frame
+    const hs = (rg ? rg.hs : s.hs0 + (s.hs1 - s.hs0) * f * f * (3 - 2 * f)) - view.fy * 0.05;   // where the horizon sits on screen: looks down as the camera climbs
+    const yaw = view.yaw + (rg ? rg.bias : 0) + view.fx * 0.09 + Math.sin(t * 0.05) * 0.02;
+    const camZ = rg ? rg.z : Math.max(alt - s.alt, 0) * s.dolly;   // the rig dollies back as it climbs; Viola: climbing also pulls back, so the astronaut stays in frame
+    camera.position.set((rg ? rg.x : 0) + view.yaw * 3.5 + view.fx * 0.7 + Math.sin(t * 0.12) * 0.7, alt, Math.sin(t * 0.06) * 0.8 + camZ);
     camera.rotation.set(Math.atan(-hs * view.tanh), -yaw, 0);
     camera.fov = 2 * Math.atan(view.tanh) * 180 / Math.PI;
     camera.updateProjectionMatrix();
@@ -285,6 +324,7 @@ export function startApp(worlds) {
     U.uTanh.value = view.tanh;
     U.uCamRot.value.setFromMatrix4(camera.matrixWorld);
     U.uFogD.value = 12 + 11 * alt;
+    if (s.rig) { const mm = rg.mm; U.uWheat.value = smooth(100, 72, mm) * smooth(36, 50, mm); }
 
     // the hole is a fixed direction in the sky (with a very slow breathing drift)
     const az = s.holeAz + Math.sin(t * 0.11) * 0.006, el = s.holeEl + Math.sin(t * 0.07) * 0.002;
@@ -299,7 +339,7 @@ export function startApp(worlds) {
 
     world().update(t, camera);
 
-    hud.update({ scene: current, mm: 12 / view.tanh, alt: camera.position.y, dist: s.camD, t, fps: fpsShown, scale: Math.round((QUALITY[settings.quality] || QUALITY.high).pixelRatio * 100) });
+    hud.update({ scene: current, mm: rg ? rg.mm : 12 / view.tanh, alt: rg ? view.alt : camera.position.y, dist: s.camD, t, fps: fpsShown, scale: Math.round((QUALITY[settings.quality] || QUALITY.high).pixelRatio * 100) });
   }
 
   // debug: milliseconds per frame on the GPU, with parts of the scene switched off (used to see what the frame time is spent on)
@@ -329,7 +369,7 @@ export function startApp(worlds) {
   if (settings.scene === 'cycle') requestScene('cycle');
   if (query.get('alt')) target.alt = view.alt = clamp(Number(query.get('alt')), altMin(), altMax());
   if (query.get('yaw')) target.yaw = view.yaw = Number(query.get('yaw'));
-  if (query.get('lens')) { setLens(clamp(Number(query.get('lens')), MM_MIN, MM_MAX)); view.alt = target.alt; target.tanh = view.tanh = 12 / clamp(Number(query.get('lens')), MM_MIN, MM_MAX); }
+  if (query.get('lens')) { setLens(clamp(Number(query.get('lens')), MM_MIN, MM_MAX)); view.alt = target.alt; target.tanh = view.tanh = 12 / (SCENES[current].rig ? lensOf(SCENES[current], target.alt) : clamp(Number(query.get('lens')), MM_MIN, MM_MAX)); }
   if (query.get('cx')) { cursor.x = Number(query.get('cx')); cursor.y = Number(query.get('cy') || 0); }
   applyQuality();
   const clock = new THREE.Clock();
