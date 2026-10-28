@@ -7,7 +7,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import {
   skyVert, skyFrag, grassVert, grassFrag, groundVert, groundFrag,
-  emberVert, emberFrag, gradeShader
+  emberVert, emberFrag, rimVert, rimFrag, gradeShader
 } from './shaders.js';
 
 const HORIZON = -0.40;   // screen-space y of the horizon, shared by sky shader and 3D camera
@@ -93,8 +93,30 @@ function buildGrass(count) {
 }
 
 // ---- silhouettes: farmhouse + windmill -------------------------------
-const dark = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.018, 0.011, 0.008) });
+const dark = new THREE.ShaderMaterial({ vertexShader: rimVert, fragmentShader: rimFrag, uniforms: U });
 const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5.0, 2.2, 0.55), toneMapped: false });
+
+// soft additive light pool (house windows, truck headlights) laid on the ground
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d');
+  const gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+  gr.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const poolTex = glowTexture();
+function lightPool(w, d, color, strength) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ map: poolTex, color: new THREE.Color(color).multiplyScalar(strength), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
+  );
+  m.position.y = 0.05;
+  return m;
+}
 
 function buildFarm() {
   const g = new THREE.Group();
@@ -114,7 +136,26 @@ function buildFarm() {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(i > 3 ? 0.4 : 0.55, i > 3 ? 0.5 : 0.7), windowMat);
     m.position.set(x, y, 1.61);
     g.add(m);
+    // window frame: cross bars and a sill
+    const w = i > 3 ? 0.4 : 0.55, hh = i > 3 ? 0.5 : 0.7;
+    for (const [bw, bh, bx, by] of [[w, 0.05, 0, 0], [0.05, hh, 0, 0], [w + 0.14, 0.07, 0, -hh / 2 - 0.03], [w + 0.14, 0.05, 0, hh / 2 + 0.02]]) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), dark);
+      bar.position.set(x + bx, y + by, 1.62);
+      g.add(bar);
+    }
   });
+  // front door + porch posts
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 1.4), dark);
+  door.position.set(-0.6, 0.7, 1.605);
+  g.add(door);
+  for (const px of [-1.6, 0.4]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.1), dark);
+    post.position.set(px, 0.75, 2.55);
+    g.add(post);
+  }
+  const pool = lightPool(9, 5, new THREE.Color(1.0, 0.55, 0.18), 1.3);
+  pool.position.set(0, 0.05, 4.4);
+  g.add(pool);
   return g;
 }
 
@@ -157,10 +198,21 @@ function buildTruck() {
   const lamp = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), windowMat);   // one dim tail lamp
   lamp.position.set(-2.52, 1.0, 0.7); lamp.rotation.y = -Math.PI / 2;
   g.add(lamp);
+  // headlights glowing toward +x, with a pool of light on the grass ahead of the truck
+  for (const z of [-0.65, 0.65]) {
+    const hl = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), windowMat);
+    hl.position.set(2.56, 0.95, z); hl.rotation.y = Math.PI / 2;
+    g.add(hl);
+  }
+  const beam = lightPool(7, 3, new THREE.Color(1.0, 0.85, 0.6), 0.9);
+  beam.position.set(5.8, 0.05, 0);
+  g.add(beam);
   return g;
 }
 function buildTree() {
   const g = new THREE.Group();
+  // leaf blobs have normals pointing every which way, so they use a flat silhouette instead of the rim-lit material
+  const dark = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.016, 0.010, 0.007) });
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 3.2, 7), dark);
   trunk.position.y = 1.6;
   g.add(trunk);
@@ -196,8 +248,8 @@ function buildPole() {
 }
 
 const truck = buildTruck();
-truck.position.set(-3.2, 0, FAR_Z + 6);
-truck.rotation.y = 0.18;
+truck.position.set(-2.4, 0, FAR_Z + 13);
+truck.rotation.y = 0.28;
 const tree = buildTree();
 tree.position.set(-8.5, 0, FAR_Z + 2);
 const fence = buildFence();
@@ -280,6 +332,7 @@ function resize() {
   const pr = renderer.getPixelRatio();
   U.uRes.value.set(w * pr, h * pr);
   fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
+  grade.uniforms.uTexel.value = [1 / (w * pr), 1 / (h * pr)];
   if (embers) embers.material.uniforms.uPx.value = h * pr / 1080;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();

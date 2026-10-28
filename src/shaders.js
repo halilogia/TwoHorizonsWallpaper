@@ -247,19 +247,53 @@ void main() {
 
 export const groundVert = /* glsl */ `
 varying float vDepth;
+varying float vX;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   vDepth = -mv.z;
+  vX = position.x;
   gl_Position = projectionMatrix * mv;
 }`;
 
 export const groundFrag = /* glsl */ `
 uniform vec3 uMid;
+uniform vec3 uHot;
 uniform vec3 uCool;
 varying float vDepth;
+varying float vX;
 void main() {
   float far = smoothstep(4.0, 30.0, vDepth);
-  vec3 col = uCool * 0.03 + uMid * 0.08 * far * far;
+  // light from the hole spills over the far field, strongest toward its side
+  float spill = exp(-pow((vX + 4.0) / 16.0, 2.0));
+  vec3 col = uCool * 0.03 + uMid * 0.08 * far * far + mix(uMid, uHot, 0.4) * 0.22 * far * far * spill;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+// silhouettes: near-black bodies with a warm Fresnel rim, as if lit from behind by the hole
+export const rimVert = /* glsl */ `
+varying vec3 vN;
+varying vec3 vV;
+varying vec3 vW;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vV = normalize(-mv.xyz);
+  vW = (modelMatrix * vec4(position, 1.0)).xyz;
+  gl_Position = projectionMatrix * mv;
+}`;
+
+export const rimFrag = /* glsl */ `
+uniform vec3 uHot;
+uniform vec3 uMid;
+varying vec3 vN;
+varying vec3 vV;
+varying vec3 vW;
+void main() {
+  float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+  float rim = pow(f, 3.6);
+  float side = 0.55 + 0.6 * smoothstep(10.0, -14.0, vW.x);   // the left of the frame sits closer to the bright disk side
+  float top = 0.7 + 0.5 * smoothstep(0.0, 6.0, vW.y);
+  vec3 col = vec3(0.016, 0.010, 0.007) + mix(uMid, uHot, 0.35) * rim * 1.5 * side * top;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -291,19 +325,28 @@ void main() {
 }`;
 
 export const gradeShader = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uTexel: { value: [1 / 1920, 1 / 1080] } },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float uTime;
+    uniform vec2 uTexel;
     varying vec2 vUv;
     float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
       vec2 q = vUv - 0.5;
       vec2 ca = q * 0.0035;   // slight chromatic aberration toward the edges
       vec3 c = vec3(texture2D(tDiffuse, vUv + ca).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - ca).b);
+      // anamorphic lens streak: bright pixels smear sideways with a cool tint
+      vec3 streak = vec3(0.0);
+      for (int i = -20; i <= 20; i++) {
+        float fi = float(i);
+        vec3 s = texture2D(tDiffuse, vUv + vec2(fi * uTexel.x * 5.0, 0.0)).rgb;
+        streak += max(s - 0.82, 0.0) * exp(-abs(fi) * 0.14);
+      }
+      c += streak * vec3(0.35, 0.55, 1.0) * 0.16;
       c *= 1.0 - dot(q, q) * 0.9;
       c += (h(vUv * 1000.0 + fract(uTime) * 7.0) - 0.5) * 0.018;
       gl_FragColor = vec4(c, 1.0);
