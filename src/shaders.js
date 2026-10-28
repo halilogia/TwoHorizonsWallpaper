@@ -14,6 +14,9 @@ uniform vec3 uMid;
 uniform vec3 uCool;
 uniform float uHorizon;
 uniform float uStars;
+uniform float uInc;     // how far above the disk plane the camera sits (drag up/down)
+uniform float uYaw;     // camera angle around the hole (drag left/right)
+uniform float uTanh;
 
 #ifndef STEPS
 #define STEPS 240
@@ -23,7 +26,7 @@ uniform float uStars;
 const float RIN = 3.0;
 const float ROUT = 13.0;
 const float CAMD = 22.0;
-const float TANH = 0.39;     // tan(fov/2): makes the shadow ~0.30 screen units wide
+// uTanh = tan(fov/2): 0.39 makes the shadow ~0.30 screen units wide; the mouse wheel changes it (lens)
 
 float h21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -116,13 +119,13 @@ vec4 diskSample(vec3 hit, vec3 rayDir) {
 
 // follow one camera ray through the curved space around the hole
 vec3 trace(vec2 q) {
-  float inc = 0.115 + 0.03 * sin(uTime * 0.09);
-  float yaw = sin(uTime * 0.05) * 0.20;
+  float inc = uInc + 0.03 * sin(uTime * 0.09);
+  float yaw = uYaw + sin(uTime * 0.05) * 0.20;
   vec3 ro = CAMD * vec3(sin(yaw) * cos(inc), sin(inc), -cos(yaw) * cos(inc));
   vec3 f = normalize(-ro);
   vec3 rgt = normalize(cross(vec3(0.0, 1.0, 0.0), f));
   vec3 up = cross(f, rgt);
-  vec3 rd = normalize(f + (rgt * q.x + up * q.y) * TANH);
+  vec3 rd = normalize(f + (rgt * q.x + up * q.y) * uTanh);
 
   // rays that pass far from the hole only get a weak-field deflection
   vec3 perp = ro - dot(ro, rd) * rd;

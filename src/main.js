@@ -33,6 +33,7 @@ const settings = {
   bloom: 1.0,
   speed: 1.0,
   parallax: true,
+  control: true,
   stars: 1.0
 };
 
@@ -45,6 +46,9 @@ const U = {
   uCool: { value: new THREE.Color() },
   uHorizon: { value: HORIZON },
   uStars: { value: 1 },
+  uInc: { value: 0.115 },
+  uYaw: { value: 0 },
+  uTanh: { value: 0.39 },
   uWind: { value: 1 }
 };
 
@@ -400,6 +404,22 @@ window.addEventListener('mousemove', (e) => {
   mouse.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1));
 });
 
+// Camera controls: drag = fly around the hole (left/right) and above or below the disk (up/down), wheel = lens, double click = reset.
+const VIEW_HOME = { inc: 0.115, yaw: 0, tanh: 0.39 };
+const view = { ...VIEW_HOME, drag: false, x: 0, y: 0 };
+const target = { ...VIEW_HOME };
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+window.addEventListener('pointerdown', (e) => { if (settings.control) { view.drag = true; view.x = e.clientX; view.y = e.clientY; } });
+window.addEventListener('pointerup', () => { view.drag = false; });
+window.addEventListener('pointermove', (e) => {
+  if (!view.drag || !settings.control) return;
+  target.yaw = clamp(target.yaw + (e.clientX - view.x) * 0.004, -1.3, 1.3);
+  target.inc = clamp(target.inc + (e.clientY - view.y) * 0.003, 0.02, 0.8);
+  view.x = e.clientX; view.y = e.clientY;
+});
+window.addEventListener('wheel', (e) => { if (settings.control) target.tanh = clamp(target.tanh * Math.exp(e.deltaY * 0.0008), 0.17, 0.9); }, { passive: true });
+window.addEventListener('dblclick', () => Object.assign(target, VIEW_HOME));
+
 // Wallpaper Engine property bridge
 window.wallpaperPropertyListener = {
   applyUserProperties(p) {
@@ -412,6 +432,7 @@ window.wallpaperPropertyListener = {
     if (p.parallax) settings.parallax = !!p.parallax.value;
     if (p.stars) { settings.stars = p.stars.value; U.uStars.value = settings.stars; }
     if (p.hud) setHud(!!p.hud.value);
+    if (p.control) settings.control = !!p.control.value;
     if (p.rays) grade.uniforms.uRays.value = p.rays.value;
     if (rebuild) applyQuality();
   }
@@ -422,6 +443,8 @@ function update(t) {
   sim = t;
   U.uTime.value = t;
   grade.uniforms.uTime.value = t;
+  for (const k of ['inc', 'yaw', 'tanh']) view[k] += (target[k] - view[k]) * 0.12;   // ease toward where the mouse sent us
+  U.uInc.value = view.inc; U.uYaw.value = view.yaw; U.uTanh.value = view.tanh;
   if (cycleMode) applyPalette(0.5 - 0.5 * Math.cos(t * (Math.PI * 2) / 120));
   const pm = settings.parallax ? mouse : new THREE.Vector2();
   mouseS.lerp(pm, 0.05);
@@ -449,13 +472,31 @@ function update(t) {
 
   if (hud.style.display !== 'none' && t - hudLast > 0.25) {
     hudLast = t;
-    const inc = (0.115 + 0.03 * Math.sin(t * 0.09)) * 57.2958;
+    const inc = (view.inc + 0.03 * Math.sin(t * 0.09)) * 57.2958;
     const s = Math.floor(t);
     const clock = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':');
-    hudData.textContent = `DIST 22.0 Rs   INC ${inc.toFixed(1)}°   T ${clock}   ${fpsShown} FPS`;
+    hudData.textContent = `DIST 22.0 Rs   INC ${inc.toFixed(1)}°   LENS ${Math.round(12 / view.tanh)} mm   T ${clock}   ${fpsShown} FPS`;
     hudTitle.textContent = U.uHot.value.r > 0.9 && U.uMid.value.b < 0.5 ? 'Ember' : 'Indigo';
   }
 }
+// debug: milliseconds per frame on the GPU, with parts of the scene switched off (used to see what the frame time is spent on)
+window.__bench = (n = 20, f = {}) => {
+  const gl = renderer.getContext();
+  const parts = [truck, farm, windmill];
+  const was = parts.map((o) => o.visible);
+  const gv = grass.visible, sv = sky.visible, bv = bloomPass.enabled;
+  parts.forEach((o) => { o.visible = !f.noModels; });
+  grass.visible = !f.noGrass; sky.visible = !f.noSky; bloomPass.enabled = bv && !f.noBloom;
+  const px = new Uint8Array(4);
+  const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);   // reading a pixel makes the CPU wait for the GPU
+  composer.render(); sync();
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) { update(30 + i * 0.016); composer.render(); sync(); }
+  const ms = (performance.now() - t0) / n;
+  parts.forEach((o, i) => { o.visible = was[i]; });
+  grass.visible = gv; sky.visible = sv; bloomPass.enabled = bv;
+  return ms;
+};
 window.__capture = (t) => { if (t !== undefined) update(t); composer.render(); return renderer.domElement.toDataURL('image/jpeg', 0.92); };
 
 // ---- loop ------------------------------------------------------------
