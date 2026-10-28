@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import houseGlb from '../assets/models/house.glb';
 import truckGlb from '../assets/models/truck.glb';
+import windmillGlb from '../assets/models/windmill.glb';
 import {
   groundVert, groundFrag, grassVert, grassFrag, rimVert, rimFrag, emberVert, emberFrag, smokeVert, smokeFrag
 } from './shaders.js';
@@ -20,9 +21,9 @@ export const AURUM = {
 export function createAurum(U) {
   const aurum = new THREE.Group();
 
-  const FAR_Z = -58;   // the wheat ends here; beyond it the ground is a mirror of the sky and the house and truck stand in it
+  const FAR_Z = -112;   // the wheat ends here, past the house and truck so both stand in the field
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(600, 76).rotateX(-Math.PI / 2).translate(0, 0, 12 - 38),
+    new THREE.PlaneGeometry(700, 170).rotateX(-Math.PI / 2).translate(0, 0, 12 - 85),
     new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U })
   );
   aurum.add(ground);
@@ -43,7 +44,7 @@ export function createAurum(U) {
     base.setIndex(idx);
     const inst = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      const z = -(1.5 + (-FAR_Z - 2 - 1.5) * Math.pow(Math.random(), 2.0));
+      const z = -(1.5 + (-FAR_Z - 2 - 1.5) * Math.pow(Math.random(), 1.6));
       const x = (Math.random() * 2 - 1) * (8 + (-z) * 1.0);
       inst[i * 3] = x;
       inst[i * 3 + 1] = z;
@@ -176,7 +177,14 @@ export function createAurum(U) {
     for (let i = 0; i < a.count; i++) a.setXYZ(i, top.x, top.y, top.z);
     a.needsUpdate = true;
   });
-  aurum.add(truck, farm);
+  // windmill: rotor node WindRotorZ spins about its own Z axis (the hub faces the camera)
+  /** @type {THREE.Object3D | null} */
+  let rotor = null;
+  const mill = new THREE.Group();
+  mill.position.set(-24, 0, -84);
+  mill.rotation.y = 0.18;
+  attachModel(mill, windmillGlb, 1.5, (g, root) => { rotor = root.getObjectByName('WindRotorZ') || null; });
+  aurum.add(truck, farm, mill);
 
   // ---- embers ----------------------------------------------------------
   /** @type {THREE.Points | null} */
@@ -221,7 +229,7 @@ export function createAurum(U) {
 
   return {
     group: aurum,
-    bench: () => ({ models: [truck, farm], grass }),
+    bench: () => ({ models: [truck, farm, mill], grass }),
     build(q) { buildGrass(q.grass); buildEmbers(q.embers); },
     setPx(px) {
       if (embers) embers.material.uniforms.uPx.value = px;
@@ -230,6 +238,7 @@ export function createAurum(U) {
     update(t) {
       const fl = 0.92 + 0.08 * Math.sin(t * 7.0) * Math.sin(t * 3.1);   // lamplight flicker
       windowMat.color.setRGB(5.0 * fl, 2.2 * fl, 0.55 * fl);
+      if (rotor) rotor.rotation.z = -(t * 0.45 + 0.35 * Math.sin(t * 0.37));   // slow turn that eases with the gusts
     }
   };
 }
