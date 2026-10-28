@@ -8,6 +8,7 @@ import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import houseGlb from '../assets/models/house.glb';
 import truckGlb from '../assets/models/truck.glb';
+import windmillGlb from '../assets/models/windmill.glb';
 import {
   skyVert, skyFrag, grassVert, grassFrag, groundVert, groundFrag,
   emberVert, emberFrag, rimVert, rimFrag, smokeVert, smokeFrag, gradeShader
@@ -129,26 +130,6 @@ function lightPool(w, d, color, strength) {
   );
   m.position.y = 0.05;
   return m;
-}
-
-const windmillRotor = new THREE.Group();
-function buildWindmill() {
-  const g = new THREE.Group();
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.55, 7.5, 6), dark);
-  tower.position.y = 3.75;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 1.0), dark);
-  head.position.set(0, 7.6, 0);
-  windmillRotor.position.set(0, 7.6, 0.6);
-  for (let i = 0; i < 4; i++) {
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.34, 3.2, 0.05), dark);
-    blade.position.y = 1.7;
-    const arm = new THREE.Group();
-    arm.rotation.z = (i * Math.PI) / 2;
-    arm.add(blade);
-    windmillRotor.add(arm);
-  }
-  g.add(tower, head, windmillRotor);
-  return g;
 }
 
 function buildTree() {
@@ -293,8 +274,10 @@ attachModel(farm, houseGlb, 0.78, (g, root) => {
   for (let i = 0; i < a.count; i++) a.setXYZ(i, top.x, top.y, top.z);
   a.needsUpdate = true;
 });
-const windmill = buildWindmill();
+const windmill = new THREE.Group();
 windmill.position.set(-13.0, 0, FAR_Z + 3);
+let windmillRotor = null;
+attachModel(windmill, windmillGlb, 0.8, (g, root) => { windmillRotor = root.getObjectByName('WindRotorZ'); });
 scene.add(farm, windmill);
 
 // ---- embers ----------------------------------------------------------
@@ -446,7 +429,7 @@ function update(t) {
   camera.position.x = mouseS.x * 0.5 + Math.sin(t * 0.12) * 1.1;
   camera.position.y = 1.7 + mouseS.y * 0.12 + Math.sin(t * 0.09) * 0.12;
   camera.position.z = Math.sin(t * 0.06) * 1.5;
-  windmillRotor.rotation.z = -t * 0.8;
+  if (windmillRotor) windmillRotor.rotation.z = -t * 0.8;
 
   const f = 0.92 + 0.08 * Math.sin(t * 7.0) * Math.sin(t * 3.1);   // lamplight flicker
   windowMat.color.setRGB(5.0 * f, 2.2 * f, 0.55 * f);

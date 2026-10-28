@@ -1,8 +1,7 @@
-"""Builds house.glb and pickup truck.glb through Blender Copilot's MCP bridge.
+"""Builds house.glb, truck.glb and windmill.glb through Blender Copilot's MCP bridge.
 
   blender --background --python "<Blender Copilot>/tools/serve_mcp_headless.py" -- --port 6592 --token <T> --export-dir <repo>/assets/models
-  BLENDER_MCP_TOKEN=<T> python tools/blender/build_models.py house
-  BLENDER_MCP_TOKEN=<T> python tools/blender/build_models.py truck
+  BLENDER_MCP_TOKEN=<T> python tools/blender/build_models.py house|truck|windmill
 """
 import sys, math, json
 import os
@@ -153,6 +152,66 @@ def build_truck():
     return objs[start:]
 
 
+def beam(name, p0, p1, w, t, ref, mat):
+    """a rectangular beam between two points; width along cross(d, ref), thickness along the other axis"""
+    d = [p1[i] - p0[i] for i in range(3)]
+    L = math.sqrt(sum(c * c for c in d)); d = [c / L for c in d]
+    def cross(a, b): return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    def norm(a):
+        n = math.sqrt(sum(c * c for c in a)); return [c / n for c in a]
+    side = norm(cross(d, ref)); nrm = norm(cross(side, d))
+    v = []
+    for p in (p0, p1):
+        for sw in (-1, 1):
+            for sn in (-1, 1):
+                v.append([p[i] + side[i] * w / 2 * sw + nrm[i] * t / 2 * sn for i in range(3)])
+    # vertex order per end: (-,-) (-,+) (+,-) (+,+)
+    f = [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]]
+    return mesh(name, v, f, mat)
+
+
+def build_windmill():
+    UP = [0, 0, 1]
+    start = len(objs)
+    base, top, H = 1.35, 0.5, 9.0
+    corners = [(1, 1), (-1, 1), (-1, -1), (1, -1)]
+    def leg(c, h):
+        k = h / H
+        return [c[0] * (base + (top - base) * k), c[1] * (base + (top - base) * k), h]
+    for i, c in enumerate(corners):
+        beam("w_leg%d" % i, leg(c, 0), leg(c, H), 0.15, 0.15, [1, 0, 0.3], "dark")
+    levels = [0.0, 2.25, 4.5, 6.75, 9.0]
+    for fi in range(4):
+        a, b = corners[fi], corners[(fi + 1) % 4]
+        for li, h in enumerate(levels[1:], 1):
+            beam("w_h%d_%d" % (fi, li), leg(a, h), leg(b, h), 0.08, 0.08, UP, "dark")
+        for li in range(len(levels) - 1):
+            h0, h1 = levels[li], levels[li + 1]
+            beam("w_dx%d_%d" % (fi, li), leg(a, h0), leg(b, h1), 0.05, 0.05, UP, "dark")
+            beam("w_dy%d_%d" % (fi, li), leg(b, h0), leg(a, h1), 0.05, 0.05, UP, "dark")
+    box("w_platform", -0.7, 0.7, -0.7, 0.7, 9.0, 9.14, "dark")
+    box("w_head", -0.3, 0.3, -0.6, 0.7, 9.2, 9.8, "dark")
+    beam("w_boom", [0, 0.6, 9.5], [0, 3.7, 9.5], 0.1, 0.1, UP, "dark")
+    prism("w_vane", [(3.3, 9.0), (4.5, 9.0), (4.7, 10.2), (3.5, 10.4)], "x", -0.025, 0.025, "dark")
+    body = objs[start:]
+    r0 = len(objs)
+    cx, cy, cz = 0.0, -0.75, 9.5
+    cyl("r_hub", cx, cy, cz, 0.28, 0.34, 14, "dark")
+    N = 18
+    for k in range(N):
+        a = 2 * math.pi * k / N
+        pa = [cx + 0.3 * math.cos(a), cy, cz + 0.3 * math.sin(a)]
+        pb = [cx + 2.7 * math.cos(a), cy, cz + 2.7 * math.sin(a)]
+        beam("r_blade%d" % k, pa, pb, 0.34, 0.035, [0, 1, 0], "dark")
+    for rr in (1.55, 2.7):
+        for k in range(N):
+            a0, a1 = 2 * math.pi * k / N, 2 * math.pi * (k + 1) / N
+            pa = [cx + rr * math.cos(a0), cy, cz + rr * math.sin(a0)]
+            pb = [cx + rr * math.cos(a1), cy, cz + rr * math.sin(a1)]
+            beam("r_ring%d_%d" % (int(rr * 10), k), pa, pb, 0.07, 0.06, [0, 1, 0], "dark")
+    return body, objs[r0:]
+
+
 if __name__ == "__main__":
     which = sys.argv[1]
     if which == "house":
@@ -161,3 +220,11 @@ if __name__ == "__main__":
     elif which == "truck":
         g = build_truck()
         finish(g, "truck.glb", "PickupTruckB")
+    elif which == "windmill":
+        body, rotor = build_windmill()
+        for grp, nm in ((body, "WindBodyZ"), (rotor, "WindRotorZ")):
+            print(json.dumps(mcp.call("join_objects", {"object_names": grp, "target_name": grp[0], "new_name": nm}))[:120])
+            print(json.dumps(mcp.call("mesh_edit", {"object_name": nm, "operation": "RECALC_NORMALS"}))[:80])
+        print(json.dumps(mcp.call("set_origin", {"object_name": "WindRotorZ", "mode": "BOUNDS_CENTER"}))[:200])
+        r = mcp.call("export_gltf", {"object_names": ["WindBodyZ", "WindRotorZ"], "filename": "windmill.glb", "y_up": True, "recenter": False})
+        print(json.dumps(r)[:400])

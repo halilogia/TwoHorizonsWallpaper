@@ -36,4 +36,4 @@ npm run serve      # http://127.0.0.1:8123  (?palette=violet&q=medium&fps=30)
 
 ## 3D models
 
-`assets/models/house.glb` (farmhouse with wing, porch, chimney) and `truck.glb` (pickup) were modelled in Blender through [Blender Copilot](https://github.com/halilogia/Blender-Copilot)'s MCP bridge; the scripts are in `tools/blender/`. `npm run build` embeds the `.glb` files into `dist/wallpaper.js` as data URLs, so the wallpaper needs no file access at run time. Materials named `glass` glow (windows, lamps); everything else is drawn as a rim-lit silhouette.
+`assets/models/house.glb` (farmhouse with wing, porch, chimney), `truck.glb` (pickup) and `windmill.glb` (lattice tower with a 18-blade wheel; the `WindRotorZ` node is spun in code) were modelled in Blender through [Blender Copilot](https://github.com/halilogia/Blender-Copilot)'s MCP bridge; the scripts are in `tools/blender/`. `npm run build` embeds the `.glb` files into `dist/wallpaper.js` as data URLs, so the wallpaper needs no file access at run time. Materials named `glass` glow (windows, lamps); everything else is drawn as a rim-lit silhouette.
