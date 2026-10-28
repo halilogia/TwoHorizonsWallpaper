@@ -3,17 +3,17 @@
   "title": "Two Horizons",
   "type": "web",
   "preview": "preview.jpg",
-  "description": "A black hole rising over a quiet farm horizon. Three.js, animated, lightweight.",
+  "description": "Two horizons under one black hole: an amber farm (Aurum) and a violet flower field (Viola). Three.js, animated.",
   "tags": ["Space", "Abstract"],
   "general": {
     "properties": {
       "schemecolor": { "order": 0, "text": "ui_browse_properties_scheme_color", "type": "color", "value": "0.8 0.4 0.1" },
-      "palette": {
-        "order": 1, "text": "Palette", "type": "combo", "value": "amber",
+      "scene": {
+        "order": 1, "text": "Scene", "type": "combo", "value": "aurum",
         "options": [
-          { "label": "Amber", "value": "amber" },
-          { "label": "Violet", "value": "violet" },
-          { "label": "Cycle (slow)", "value": "cycle" }
+          { "label": "I  Aurum (amber farm)", "value": "aurum" },
+          { "label": "II  Viola (violet field)", "value": "viola" },
+          { "label": "Alternate every 45 s", "value": "cycle" }
         ]
       },
       "quality": {
@@ -30,7 +30,7 @@
       "parallax": { "order": 6, "text": "Mouse parallax", "type": "bool", "value": true },
       "stars": { "order": 7, "text": "Stars", "type": "slider", "value": 1.0, "min": 0, "max": 2, "step": 0.05, "fraction": true },
       "rays": { "order": 8, "text": "Light rays", "type": "slider", "value": 1.0, "min": 0, "max": 2, "step": 0.05, "fraction": true },
-      "hud": { "order": 9, "text": "Show HUD", "type": "bool", "value": false },
+      "hud": { "order": 9, "text": "Show HUD (title, telemetry, lens ruler, scene menu)", "type": "bool", "value": true },
       "mousemode": { "order": 10, "text": "Mouse control", "type": "combo", "value": "follow", "options": [ { "label": "Follow cursor (works on the desktop)", "value": "follow" }, { "label": "Drag with button (in a window)", "value": "drag" }, { "label": "Off", "value": "off" } ] }
     }
   }

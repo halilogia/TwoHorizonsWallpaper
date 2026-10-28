@@ -8,47 +8,74 @@ import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import houseGlb from '../assets/models/house.glb';
 import truckGlb from '../assets/models/truck.glb';
-import windmillGlb from '../assets/models/windmill.glb';
 import {
   skyVert, skyFrag, grassVert, grassFrag, groundVert, groundFrag,
   emberVert, emberFrag, rimVert, rimFrag, smokeVert, smokeFrag, gradeShader
 } from './shaders.js';
+import { createHud } from './hud.js';
+import { createViola } from './viola.js';
 
-const HORIZON = -0.40;   // screen-space y of the horizon, shared by sky shader and 3D camera
-const PALETTES = {
-  amber:  { hot: [1.00, 0.82, 0.50], mid: [1.00, 0.45, 0.10], cool: [0.50, 0.12, 0.03] },
-  violet: { hot: [0.95, 0.78, 1.00], mid: [0.55, 0.28, 1.00], cool: [0.16, 0.06, 0.45] }
+// Two worlds behind one camera. Everything is 1 unit = 1 metre; the black hole is a fixed direction in the sky (a celestial object),
+// so the mouse only ever moves the camera and the whole world follows: grass, house and truck slide against each other, the hole barely moves.
+const SCENES = {
+  aurum: {
+    name: 'Aurum', tagline: 'The last farm before the event horizon',
+    hot: [1.00, 0.82, 0.50], mid: [1.00, 0.45, 0.10], cool: [0.50, 0.12, 0.03],
+    camD: 17.8, inc: 0.10, rOut: 9, dopp: 1, gain: 1.0, sky: 0,
+    skyTop: [0, 0, 0], skyLow: [0, 0, 0], band: [0, 0, 0],
+    alt: 2.09, hs0: -0.57, hs1: 0.32, dolly: 0, mm: 49, holeAz: -0.04, holeEl: 0.078,
+    bloom: 0.4, bloomRadius: 0.25, exposure: 0.85
+  },
+  viola: {
+    name: 'Viola', tagline: 'A violet field beneath the arc of the disk',
+    hot: [1.00, 0.86, 0.62], mid: [0.95, 0.62, 0.45], cool: [0.55, 0.30, 0.50],
+    camD: 33.6, inc: 0.03, rOut: 6.5, dopp: 0.3, gain: 1.4, sky: 1,
+    skyTop: [0.025, 0.022, 0.07], skyLow: [0.11, 0.08, 0.15], band: [1.0, 0.86, 0.62],
+    alt: 1.11, hs0: 0.18, hs1: 0.55, dolly: 4.5, mm: 57, holeAz: 0.04, holeEl: 0.012,
+    bloom: 0.35, bloomRadius: 0.4, exposure: 0.95
+  }
 };
+const SCENE_LIST = ['aurum', 'viola'];
+const ALT_MAX = 16, ALT_MIN = 0.7, MM_MIN = 23, MM_MAX = 107;
 const QUALITY = {
-  low:    { pixelRatio: 0.6, grass: 14000, embers: 60,  bloom: false, steps: 90 },
-  medium: { pixelRatio: 0.85, grass: 45000, embers: 140, bloom: true, steps: 160 },
-  high:   { pixelRatio: 1.0, grass: 120000, embers: 300, bloom: true, steps: 240 }
+  low:    { pixelRatio: 0.6,  grass: 14000,  flowers: 18000,  embers: 60,  fireflies: 120, bloom: false, steps: 90 },
+  medium: { pixelRatio: 0.85, grass: 45000,  flowers: 55000,  embers: 140, fireflies: 300, bloom: true,  steps: 160 },
+  high:   { pixelRatio: 1.0,  grass: 120000, flowers: 110000, embers: 300, fireflies: 600, bloom: true,  steps: 240 }
 };
 
 const query = new URLSearchParams(location.search);
 const settings = {
-  palette: query.get('palette') || 'amber',
+  scene: query.get('scene') || (query.get('palette') === 'violet' ? 'viola' : query.get('palette') === 'cycle' ? 'cycle' : 'aurum'),
   quality: query.get('q') || 'high',
   fps: Number(query.get('fps')) || 60,
   bloom: 1.0,
   speed: 1.0,
   parallax: true,
-  mode: query.get('mode') || 'drag',   // Wallpaper Engine switches this to its own default (follow) when it sends properties
+  mode: query.get('mode') || 'follow',   // follow: the camera drifts with the cursor, no click needed (desktop). drag: hold the button. off.
   stars: 1.0
 };
+const freeze = query.get('freeze') === '1';   // debug: settle, render a few frames and stop (for screenshots)
 
 const U = {
   uTime: { value: 0 },
   uRes: { value: new THREE.Vector2(1, 1) },
-  uMouse: { value: new THREE.Vector2() },
   uHot: { value: new THREE.Color() },
   uMid: { value: new THREE.Color() },
   uCool: { value: new THREE.Color() },
-  uHorizon: { value: HORIZON },
   uStars: { value: 1 },
+  uTanh: { value: 0.245 },
+  uCamRot: { value: new THREE.Matrix3() },
+  uHoleDir: { value: new THREE.Vector3(0, 0, -1) },
+  uCamD: { value: 17.8 },
   uInc: { value: 0.115 },
-  uYaw: { value: 0 },
-  uTanh: { value: 0.39 },
+  uROut: { value: 13 },
+  uDopp: { value: 1 },
+  uGain: { value: 1 },
+  uSky: { value: 0 },
+  uSkyTop: { value: new THREE.Color() },
+  uSkyLow: { value: new THREE.Color() },
+  uBandCol: { value: new THREE.Color() },
+  uFogD: { value: 20 },
   uWind: { value: 1 }
 };
 
@@ -58,8 +85,8 @@ renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
-camera.position.set(0, 1.7, 0);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 1500);
+camera.rotation.order = 'YXZ';
 
 // ---- sky -------------------------------------------------------------
 const sky = new THREE.Mesh(
@@ -70,17 +97,22 @@ sky.frustumCulled = false;
 sky.renderOrder = -10;
 scene.add(sky);
 
-// ---- ground + grass --------------------------------------------------
-const FAR_Z = -30;
+// ============================ Scene I: Aurum ============================
+const aurum = new THREE.Group();
+scene.add(aurum);
+
+const FAR_Z = -58;   // the wheat ends here; beyond it the ground is a mirror of the sky and the house and truck stand in it
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(200, 40).rotateX(-Math.PI / 2).translate(0, 0, FAR_Z + 20),
+  new THREE.PlaneGeometry(600, 76).rotateX(-Math.PI / 2).translate(0, 0, 12 - 38),
   new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U })
 );
-scene.add(ground);
+aurum.add(ground);
 
+const TRUCK_AT = new THREE.Vector3(-2.0, 0, -72), HOUSE_AT = new THREE.Vector3(22, 0, -92);
+/** @type {THREE.Mesh | null} */
 let grass = null;
 function buildGrass(count) {
-  if (grass) { scene.remove(grass); grass.geometry.dispose(); }
+  if (grass) { aurum.remove(grass); grass.geometry.dispose(); }
   const base = new THREE.InstancedBufferGeometry();
   // five-row tapered blade: pairs of vertices up the stalk plus one tip vertex
   const rows = 4, pos = [], idx = [];
@@ -92,11 +124,8 @@ function buildGrass(count) {
   base.setIndex(idx);
   const inst = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    let x, z;
-    do {   // keep a bare patch of ground where the pickup stands
-      z = -(1.5 + (-FAR_Z - 1.5) * Math.pow(Math.random(), 1.35));
-      x = (Math.random() * 2 - 1) * (6 + (-z) * 1.6);
-    } while (x > -8.5 && x < 4.0 && z < -12.5 && z > -22.5);
+    const z = -(1.5 + (-FAR_Z - 2 - 1.5) * Math.pow(Math.random(), 2.0));
+    const x = (Math.random() * 2 - 1) * (8 + (-z) * 1.0);
     inst[i * 3] = x;
     inst[i * 3 + 1] = z;
     inst[i * 3 + 2] = Math.random();
@@ -107,11 +136,14 @@ function buildGrass(count) {
     vertexShader: grassVert, fragmentShader: grassFrag, uniforms: U, side: THREE.DoubleSide
   }));
   grass.frustumCulled = false;
-  scene.add(grass);
+  aurum.add(grass);
 }
 
-// ---- silhouettes: farmhouse + windmill -------------------------------
-const dark = new THREE.ShaderMaterial({ vertexShader: rimVert, fragmentShader: rimFrag, uniforms: U });
+// near-black bodies with a warm rim, as if lit from behind by the hole; glass parts glow
+const dark = new THREE.ShaderMaterial({
+  vertexShader: rimVert, fragmentShader: rimFrag,
+  uniforms: { uHot: U.uHot, uMid: U.uMid, uBase: { value: new THREE.Color(0.016, 0.010, 0.007) }, uRim: { value: 1 } }
+});
 const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5.0, 2.2, 0.55), toneMapped: false });
 
 // soft additive light pool (house windows, truck headlights) laid on the ground
@@ -119,6 +151,7 @@ function glowTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const x = c.getContext('2d');
+  if (!x) return new THREE.CanvasTexture(c);
   const gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
   gr.addColorStop(0, 'rgba(255,255,255,1)');
   gr.addColorStop(0.35, 'rgba(255,255,255,0.35)');
@@ -134,44 +167,6 @@ function lightPool(w, d, color, strength) {
   );
   m.position.y = 0.05;
   return m;
-}
-
-function buildTree() {
-  const g = new THREE.Group();
-  // leaf blobs have normals pointing every which way, so they use a flat silhouette instead of the rim-lit material
-  const dark = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.016, 0.010, 0.007) });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 3.2, 7), dark);
-  trunk.position.y = 1.6;
-  g.add(trunk);
-  for (const [x, y, z, s] of [[0, 4.2, 0, 1.9], [-1.1, 3.6, 0.3, 1.3], [1.2, 3.7, -0.2, 1.4], [0.2, 5.3, 0.1, 1.1]]) {
-    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 1), dark);
-    b.position.set(x, y, z); b.scale.y = 0.85;
-    g.add(b);
-  }
-  return g;
-}
-function buildFence() {
-  const g = new THREE.Group();
-  for (let x = -34; x <= 34; x += 3.2) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.15, 0.14), dark);
-    post.position.set(x, 0.575, 0);
-    g.add(post);
-  }
-  for (const y of [0.45, 0.9]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(68.6, 0.07, 0.05), dark);
-    rail.position.set(0, y, 0);
-    g.add(rail);
-  }
-  return g;
-}
-function buildPole() {
-  const g = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 8.5, 6), dark);
-  pole.position.y = 4.25;
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 0.12), dark);
-  arm.position.y = 7.9;
-  g.add(pole, arm);
-  return g;
 }
 
 // Blender models (modelled with Blender Copilot): glass parts glow, everything else is a rim-lit silhouette.
@@ -215,86 +210,66 @@ function topOf(root, band) {
   return out.multiplyScalar(1 / top.length);
 }
 
+// the dog on the porch (profile facing +x, looking out at the hole)
+function buildDog() {
+  const g = new THREE.Group();
+  const part = (geo, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geo, dark);
+    m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
+    g.add(m);
+    return m;
+  };
+  part(new THREE.CapsuleGeometry(0.15, 0.42, 4, 10), 0, 0.46, 0, 0, 0, Math.PI / 2);          // body
+  part(new THREE.CapsuleGeometry(0.075, 0.2, 4, 8), 0.34, 0.66, 0, 0, 0, -0.55);              // neck
+  part(new THREE.SphereGeometry(0.105, 12, 10), 0.43, 0.8, 0);                                // head
+  part(new THREE.CapsuleGeometry(0.045, 0.1, 4, 8), 0.55, 0.77, 0, 0, 0, Math.PI / 2 - 0.2);  // snout
+  for (const z of [-0.05, 0.05]) part(new THREE.ConeGeometry(0.04, 0.12, 5), 0.39, 0.92, z, 0, 0, 0.2);   // ears
+  for (const [x, z] of [[0.2, 0.07], [0.2, -0.07], [-0.2, 0.07], [-0.2, -0.07]]) part(new THREE.CylinderGeometry(0.03, 0.025, 0.38, 6), x, 0.19, z);   // legs
+  part(new THREE.CapsuleGeometry(0.025, 0.3, 3, 6), -0.4, 0.56, 0, 0, 0, 1.0);                // tail
+  return g;
+}
+
 const truck = new THREE.Group();
-truck.position.set(-2.2, 0, FAR_Z + 10);
+truck.position.copy(TRUCK_AT);
 truck.rotation.y = 0.28;
-attachModel(truck, truckGlb, 1.2, (g) => {
+attachModel(truck, truckGlb, 1.15, (g) => {
   const beam = lightPool(7, 3, new THREE.Color(1.0, 0.85, 0.6), 0.9);   // headlight spill on the grass
   beam.position.set(7.0, 0.05, 0);
   g.add(beam);
 });
-const tree = buildTree();
-tree.position.set(-8.5, 0, FAR_Z + 2);
-const fence = buildFence();
-fence.position.set(0, 0, FAR_Z + 9);
-const pole = buildPole();
-pole.position.set(15, 0, FAR_Z + 7);
-scene.add(truck, tree, fence, pole);
 
-// power line: two more poles with sagging wires crossing the sky
-const wireMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.012, 0.008, 0.006) });
-const polesX = [15, -7, -29];
-for (const px of polesX.slice(1)) {
-  const p2 = buildPole();
-  p2.position.set(px, 0, FAR_Z + 7);
-  scene.add(p2);
-}
-for (let i = 0; i < polesX.length - 1; i++) {
-  for (const off of [-1.0, 1.0]) {
-    const x1 = polesX[i] + off, x2 = polesX[i + 1] + off, y = 7.85, z = FAR_Z + 7;
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(x1, y, z), new THREE.Vector3((x1 * 2 + x2) / 3, y - 1.05, z),
-      new THREE.Vector3((x1 + x2 * 2) / 3, y - 1.05, z), new THREE.Vector3(x2, y, z)
-    ]);
-    scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.032, 5), wireMat));
-  }
-}
-
-// a loose flock crossing the sky
-const birds = [];
-{
-  const wingGeo = new THREE.ShapeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(-1.0, 0.12), new THREE.Vector2(-0.35, -0.12)]));
-  const flat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.014, 0.009, 0.006), side: THREE.DoubleSide });
-  for (let i = 0; i < 11; i++) {
-    const g = new THREE.Group();
-    const l = new THREE.Mesh(wingGeo, flat), r = new THREE.Mesh(wingGeo, flat);
-    r.scale.x = -1;
-    g.add(l, r);
-    g.scale.setScalar(0.9 + Math.random() * 0.5);
-    scene.add(g);
-    birds.push({ g, l, r, x: Math.random() * 70 - 35, y: 9 + Math.random() * 5 + (i % 3) * 0.7, z: -34 - Math.random() * 6, v: 1.6 + Math.random() * 0.5, ph: Math.random() * 6 });
-  }
-}
-
+/** @type {THREE.Points | null} */
+let smoke = null;
 const farm = new THREE.Group();
-farm.position.set(9.0, 0, FAR_Z + 2);
+farm.position.copy(HOUSE_AT);
 farm.rotation.y = -0.08;
-attachModel(farm, houseGlb, 0.95, (g, root) => {
-  const pool = lightPool(10, 6, new THREE.Color(1.0, 0.55, 0.18), 1.3);   // window light on the yard
-  pool.position.set(0, 0.05, 5.5);
+attachModel(farm, houseGlb, 2.1, (g, root) => {
+  const pool = lightPool(18, 10, new THREE.Color(1.0, 0.55, 0.18), 1.3);   // window light on the yard
+  pool.position.set(0, 0.05, 9);
   g.add(pool);
+  const dog = buildDog();
+  dog.position.set(-8.1, 0.5, 4.9);   // at the left end of the porch, in front of the wall so it reads against the glow
+  dog.scale.setScalar(1.15);
+  g.add(dog);
   const top = topOf(root, 0.15);                                           // chimney: smoke starts here
+  if (!smoke) return;
   const a = smoke.geometry.attributes.position;
   for (let i = 0; i < a.count; i++) a.setXYZ(i, top.x, top.y, top.z);
   a.needsUpdate = true;
 });
-const windmill = new THREE.Group();
-windmill.position.set(-13.0, 0, FAR_Z + 3);
-let windmillRotor = null;
-attachModel(windmill, windmillGlb, 0.8, (g, root) => { windmillRotor = root.getObjectByName('WindRotorZ'); });
-scene.add(farm, windmill);
+aurum.add(truck, farm);
 
 // ---- embers ----------------------------------------------------------
+/** @type {THREE.Points | null} */
 let embers = null;
-let smoke = null;
 function buildEmbers(count) {
-  if (embers) { scene.remove(embers); embers.geometry.dispose(); }
+  if (embers) { aurum.remove(embers); embers.geometry.dispose(); }
   const pos = new Float32Array(count * 3);
   const seed = new Float32Array(count * 4);
   for (let i = 0; i < count; i++) {
-    pos[i * 3] = (Math.random() * 2 - 1) * 24;
+    pos[i * 3] = (Math.random() * 2 - 1) * 60;
     pos[i * 3 + 1] = Math.random() * 9;
-    pos[i * 3 + 2] = -3 - Math.random() * 27;
+    pos[i * 3 + 2] = -4 - Math.random() * 66;
     for (let k = 0; k < 4; k++) seed[i * 4 + k] = Math.random();
   }
   const geo = new THREE.BufferGeometry();
@@ -306,13 +281,13 @@ function buildEmbers(count) {
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
   }));
   embers.frustumCulled = false;
-  scene.add(embers);
+  aurum.add(embers);
 }
 
 // chimney smoke: soft dark puffs that rise, swell and drift with the wind
 {
   const n = 36, pos = new Float32Array(n * 3), seed = new Float32Array(n);
-  for (let i = 0; i < n; i++) { pos.set([10.5, 4.9, FAR_Z + 1.8], i * 3); seed[i] = i / n; }
+  for (let i = 0; i < n; i++) { pos.set([HOUSE_AT.x + 4, 11, HOUSE_AT.z], i * 3); seed[i] = i / n; }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
@@ -322,8 +297,12 @@ function buildEmbers(count) {
   }));
   smoke.frustumCulled = false;
   smoke.renderOrder = 5;
-  scene.add(smoke);
+  aurum.add(smoke);
 }
+
+// ============================ Scene II: Viola ============================
+const viola = createViola(U);
+scene.add(viola.group);
 
 // ---- post ------------------------------------------------------------
 const composer = new EffectComposer(renderer);
@@ -336,46 +315,63 @@ composer.addPass(fxaa);
 const grade = new ShaderPass(gradeShader);
 composer.addPass(grade);
 
-// ---- optional HUD (off by default) ----------------------------------
-const hud = document.createElement('div');
-hud.style.cssText = 'position:fixed;inset:0;pointer-events:none;display:none;font:11px/1.6 Consolas,monospace;letter-spacing:.14em;color:rgba(255,236,210,.82);text-shadow:0 0 8px rgba(0,0,0,.6)';
-function hudText(css, text, parent) {
-  const el = document.createElement('div');
-  el.style.cssText = css;
-  el.textContent = text;
-  parent.appendChild(el);
-  return el;
+// ---- scene switching: fade to black, swap the world, fade back -----------
+let current = 'aurum';
+let pending = null;
+let fade = 0;
+let cycleMode = false, cycleAt = 0;
+const view = { yaw: 0, alt: 2.09, tanh: 0.245, fx: 0, fy: 0 };
+const target = { yaw: 0, alt: 2.09, tanh: 0.245 };
+const cursor = { x: 0, y: 0 };   // -1..1, y up
+
+function applyScene(id) {
+  const s = SCENES[id];
+  current = id;
+  U.uHot.value.setRGB(...s.hot); U.uMid.value.setRGB(...s.mid); U.uCool.value.setRGB(...s.cool);
+  U.uSkyTop.value.setRGB(...s.skyTop); U.uSkyLow.value.setRGB(...s.skyLow); U.uBandCol.value.setRGB(...s.band);
+  U.uCamD.value = s.camD; U.uInc.value = s.inc; U.uROut.value = s.rOut; U.uDopp.value = s.dopp; U.uGain.value = s.gain; U.uSky.value = s.sky;
+  aurum.visible = id === 'aurum';
+  viola.group.visible = id === 'viola';
+  grade.uniforms.uHaze.value = s.sky;
+  renderer.toneMappingExposure = s.exposure;
+  setBloom();
+  resetView();
 }
-const hudHead = hudText('position:absolute;left:28px;top:24px', '', hud);
-hudText('font-size:10px;opacity:.6', 'TWO HORIZONS', hudHead);
-const hudTitle = hudText('font:300 30px Georgia,serif;letter-spacing:.02em;margin-top:2px', 'Ember', hudHead);
-hudText('opacity:.6;margin-top:4px', 'The last farm before the event horizon', hudHead);
-const hudData = hudText('position:absolute;left:28px;bottom:26px;white-space:pre', '', hud);
-document.body.appendChild(hud);
-let hudLast = 0, fpsShown = 0, fpsCount = 0, fpsStamp = performance.now();
-function setHud(on) { hud.style.display = on ? 'block' : 'none'; }
-if (query.get('hud') === '1') setHud(true);
+function resetView() {
+  const s = SCENES[current];
+  target.yaw = 0; target.alt = s.alt; target.tanh = 12 / s.mm;
+}
+function requestScene(id) {
+  if (id === 'cycle') { cycleMode = true; cycleAt = U.uTime.value + 45; return; }
+  cycleMode = false;
+  if (!SCENES[id] || (id === current && !pending)) return;
+  pending = id;
+}
+function setBloom() {
+  const s = SCENES[current];
+  bloomPass.strength = s.bloom * settings.bloom;
+  bloomPass.radius = s.bloomRadius;
+  bloomPass.enabled = (QUALITY[settings.quality] || QUALITY.high).bloom && settings.bloom > 0.01;
+}
+
+// ---- HUD ---------------------------------------------------------------
+const hud = createHud({
+  scenes: SCENE_LIST.map((id) => ({ id, name: SCENES[id].name, tagline: SCENES[id].tagline })),
+  onScene: requestScene,
+  onLens: (mm) => { target.tanh = 12 / mm; }
+});
+let fpsShown = 0, fpsCount = 0, fpsStamp = performance.now();
+hud.show(query.get('hud') !== '0');
 
 // ---- settings application -------------------------------------------
-let cycleMode = false;
-function setPalette(name) {
-  cycleMode = name === 'cycle';
-  if (!cycleMode) applyPalette(PALETTES[name] ? name === 'violet' ? 1 : 0 : 0);
-}
-function applyPalette(t) {   // t: 0 = amber, 1 = violet
-  const a = PALETTES.amber, b = PALETTES.violet;
-  for (const key of ['hot', 'mid', 'cool']) {
-    const u = U['u' + key[0].toUpperCase() + key.slice(1)].value;
-    u.setRGB(a[key][0] + (b[key][0] - a[key][0]) * t, a[key][1] + (b[key][1] - a[key][1]) * t, a[key][2] + (b[key][2] - a[key][2]) * t);
-  }
-}
 function applyQuality() {
   const q = QUALITY[settings.quality] || QUALITY.high;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * q.pixelRatio);
   buildGrass(q.grass);
   buildEmbers(q.embers);
+  viola.build(q.flowers, q.fireflies);
   if (sky.material.defines.STEPS !== q.steps) { sky.material.defines.STEPS = q.steps; sky.material.needsUpdate = true; }
-  bloomPass.enabled = q.bloom && settings.bloom > 0.01;
+  setBloom();
   resize();
 }
 function resize() {
@@ -391,114 +387,126 @@ function resize() {
   grade.uniforms.uTexel.value = [1 / (w * pr), 1 / (h * pr)];
   if (embers) embers.material.uniforms.uPx.value = h * pr / 1080;
   if (smoke) smoke.material.uniforms.uPx.value = h * pr / 1080;
+  viola.setPx(h * pr / 1080);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  // lens shift: put the 3D horizon at the same screen height as the sky shader's horizon
-  camera.projectionMatrix.elements[9] = -HORIZON;
-  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 }
 window.addEventListener('resize', resize);
 
-const mouse = new THREE.Vector2(), mouseS = new THREE.Vector2();
-window.addEventListener('mousemove', (e) => {
-  mouse.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1));
-});
-
-// Camera controls. Two modes: "follow" (the camera follows the cursor: works on the desktop, where Wallpaper Engine passes
-// mouse movement but usually swallows clicks) and "drag" (hold the button and drag: works in a normal window).
-// Wheel = lens, double click = reset. Mouse and pointer events are both listened to, because hosts differ in which they send.
-const VIEW_HOME = { inc: 0.115, yaw: 0, tanh: 0.39 };
-const view = { ...VIEW_HOME, drag: false, x: 0, y: 0 };
-const target = { ...VIEW_HOME };
+// ---- camera controls -------------------------------------------------
+// follow (default): the camera drifts with the cursor, no click needed, because Wallpaper Engine passes mouse movement to a desktop wallpaper
+// but usually swallows the clicks. drag: hold the button. In follow and drag mode a held button also flies the camera, if the host delivers it:
+// drag sideways = pan, drag up = climb (ALT up to 16 m), wheel = lens, double click = reset, 1 / 2 = scenes, arrow up / down = climb.
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-const evCount = { down: 0, move: 0, wheel: 0 };   // shown in the HUD, to see what the host really delivers
-function onDown(x, y) { evCount.down++; if (settings.mode === 'drag') { view.drag = true; view.x = x; view.y = y; } }
-function onUp() { view.drag = false; }
+const evCount = { down: 0, move: 0, wheel: 0 };
+const drag = { on: false, x: 0, y: 0 };
+function onDown(x, y) { evCount.down++; if (settings.mode !== 'off') { drag.on = true; drag.x = x; drag.y = y; } }
+function onUp() { drag.on = false; }
 function onMove(x, y) {
   evCount.move++;
-  if (settings.mode === 'follow') {
-    target.yaw = clamp((x / window.innerWidth - 0.5) * 2 * 0.9, -1.3, 1.3);
-    target.inc = clamp(VIEW_HOME.inc + (0.5 - y / window.innerHeight) * 0.7, 0.02, 0.8);
-  } else if (settings.mode === 'drag' && view.drag) {
-    target.yaw = clamp(target.yaw + (x - view.x) * 0.004, -1.3, 1.3);
-    target.inc = clamp(target.inc + (y - view.y) * 0.003, 0.02, 0.8);
-    view.x = x; view.y = y;
+  cursor.x = (x / window.innerWidth) * 2 - 1;
+  cursor.y = -((y / window.innerHeight) * 2 - 1);
+  if (drag.on && settings.mode !== 'off') {
+    target.yaw = clamp(target.yaw + (x - drag.x) * 0.0035, -1.2, 1.2);
+    target.alt = clamp(target.alt * Math.exp(-(y - drag.y) * 0.006), ALT_MIN, ALT_MAX);
+    drag.x = x; drag.y = y;
   }
 }
-function onWheel(dy) { evCount.wheel++; if (settings.mode !== 'off') target.tanh = clamp(target.tanh * Math.exp(dy * 0.0008), 0.17, 0.9); }
+function onWheel(dy) {
+  evCount.wheel++;
+  if (settings.mode !== 'off') target.tanh = clamp(target.tanh * Math.exp(dy * 0.0008), 12 / MM_MAX, 12 / MM_MIN);
+}
 for (const t of ['pointerdown', 'mousedown']) window.addEventListener(t, (e) => onDown(e.clientX, e.clientY));
 for (const t of ['pointerup', 'mouseup']) window.addEventListener(t, onUp);
 for (const t of ['pointermove', 'mousemove']) window.addEventListener(t, (e) => onMove(e.clientX, e.clientY));
 window.addEventListener('wheel', (e) => onWheel(e.deltaY), { passive: true });
-window.addEventListener('dblclick', () => Object.assign(target, VIEW_HOME));
+window.addEventListener('dblclick', resetView);
+window.addEventListener('keydown', (e) => {
+  if (e.key === '1') requestScene('aurum');
+  else if (e.key === '2') requestScene('viola');
+  else if (e.key === 'ArrowUp') target.alt = clamp(target.alt * 1.15, ALT_MIN, ALT_MAX);
+  else if (e.key === 'ArrowDown') target.alt = clamp(target.alt / 1.15, ALT_MIN, ALT_MAX);
+});
 
 // Wallpaper Engine property bridge
 window.wallpaperPropertyListener = {
   applyUserProperties(p) {
     let rebuild = false;
-    if (p.palette) { settings.palette = p.palette.value; setPalette(settings.palette); }
+    if (p.scene) requestScene(p.scene.value);
     if (p.quality && p.quality.value !== settings.quality) { settings.quality = p.quality.value; rebuild = true; }
     if (p.fps) settings.fps = p.fps.value;
-    if (p.bloom) { settings.bloom = p.bloom.value; bloomPass.strength = 0.7 * settings.bloom; bloomPass.enabled = (QUALITY[settings.quality] || QUALITY.high).bloom && settings.bloom > 0.01; }
+    if (p.bloom) { settings.bloom = p.bloom.value; setBloom(); }
     if (p.speed) settings.speed = p.speed.value;
     if (p.parallax) settings.parallax = !!p.parallax.value;
     if (p.stars) { settings.stars = p.stars.value; U.uStars.value = settings.stars; }
-    if (p.hud) setHud(!!p.hud.value);
+    if (p.hud) hud.show(!!p.hud.value);
     if (p.mousemode) settings.mode = p.mousemode.value;
     if (p.rays) grade.uniforms.uRays.value = p.rays.value;
     if (rebuild) applyQuality();
   }
 };
 
-// debug helper: window.__capture() returns a JPEG data URL of the current frame (used to make preview.jpg)
+const camPos = new THREE.Vector3(), holeDir = new THREE.Vector3(), hv = new THREE.Vector3();
+let lastT = 0;
 function update(t) {
+  const dt = clamp(t - lastT, 0, 0.1);
+  lastT = t;
   sim = t;
   U.uTime.value = t;
   grade.uniforms.uTime.value = t;
-  for (const k of ['inc', 'yaw', 'tanh']) view[k] += (target[k] - view[k]) * 0.12;   // ease toward where the mouse sent us
-  U.uInc.value = view.inc; U.uYaw.value = view.yaw; U.uTanh.value = view.tanh;
-  if (cycleMode) applyPalette(0.5 - 0.5 * Math.cos(t * (Math.PI * 2) / 120));
-  const pm = settings.parallax ? mouse : new THREE.Vector2();
-  mouseS.lerp(pm, 0.05);
-  U.uMouse.value.copy(mouseS);
-  camera.position.x = mouseS.x * 0.5 + Math.sin(t * 0.12) * 1.1;
-  camera.position.y = 1.7 + mouseS.y * 0.12 + Math.sin(t * 0.09) * 0.12;
-  camera.position.z = Math.sin(t * 0.06) * 1.5;
-  if (windmillRotor) windmillRotor.rotation.z = -t * 0.8;
 
-  const f = 0.92 + 0.08 * Math.sin(t * 7.0) * Math.sin(t * 3.1);   // lamplight flicker
-  windowMat.color.setRGB(5.0 * f, 2.2 * f, 0.55 * f);
-  for (const b of birds) {
-    const x = ((b.x - b.v * t + 35) % 70 + 70) % 70 - 35;
-    b.g.position.set(x, b.y + Math.sin(t * 0.6 + b.ph) * 0.5, b.z);
-    const flap = Math.sin(t * 7.0 + b.ph) * 0.7;
-    b.l.rotation.z = flap; b.r.rotation.z = -flap;
-    b.g.rotation.y = Math.PI / 2 + 0.0;   // wings spread across the line of flight
-    b.g.rotation.x = 0; b.g.lookAt(b.g.position.x - 10, b.g.position.y, b.g.position.z);
-  }
+  // scene switching and the optional auto-cycle
+  if (cycleMode && !pending && t > cycleAt) { cycleAt = t + 45; pending = current === 'aurum' ? 'viola' : 'aurum'; }
+  if (pending) {
+    fade = Math.min(1, fade + dt / 0.55);
+    if (fade >= 1) { applyScene(pending); pending = null; }
+  } else if (fade > 0) fade = Math.max(0, fade - dt / 0.8);
+  grade.uniforms.uFade.value = fade * fade * (3 - 2 * fade);
 
-  // keep the light-ray pass aimed at the moving hole (mirrors holeCenter() in the sky shader)
-  const hx = -0.10 + mouseS.x * 0.012 + Math.sin(t * 0.11) * 0.03;
-  const hy = HORIZON + 0.52 + mouseS.y * 0.012 + Math.sin(t * 0.07) * 0.01;
-  grade.uniforms.uHoleUV.value = [(hx / camera.aspect + 1) / 2, (hy + 1) / 2];
+  const s = SCENES[current];
+  const follow = settings.mode === 'follow' && settings.parallax;
+  const ease = freeze ? 1 : 1 - Math.exp(-dt * 6.5);
+  const goal = { yaw: target.yaw, alt: target.alt, tanh: target.tanh, fx: follow ? cursor.x : 0, fy: follow ? cursor.y : 0 };
+  for (const k in goal) view[k] += (goal[k] - view[k]) * ease;
 
-  if (hud.style.display !== 'none' && t - hudLast > 0.25) {
-    hudLast = t;
-    const inc = (view.inc + 0.03 * Math.sin(t * 0.09)) * 57.2958;
-    const s = Math.floor(t);
-    const clock = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':');
-    hudData.textContent = `DIST 22.0 Rs   INC ${inc.toFixed(1)}°   LENS ${Math.round(12 / view.tanh)} mm   T ${clock}   EVT ${evCount.down}/${evCount.move}/${evCount.wheel}   ${fpsShown} FPS`;
-    hudTitle.textContent = U.uHot.value.r > 0.9 && U.uMid.value.b < 0.5 ? 'Ember' : 'Indigo';
-  }
+  // unified camera: pan with the cursor, drift slowly, climb with drag / arrow keys, a hint of lateral travel so near things slide over far ones
+  const alt = clamp(view.alt * Math.exp(view.fy * 0.4), ALT_MIN, ALT_MAX);
+  const f = clamp(Math.log(alt / s.alt) / Math.log(ALT_MAX / s.alt), 0, 1);
+  const hs = s.hs0 + (s.hs1 - s.hs0) * f * f * (3 - 2 * f) - view.fy * 0.05;   // where the horizon sits on screen: looks down as the camera climbs
+  const yaw = view.yaw + view.fx * 0.09 + Math.sin(t * 0.05) * 0.02;
+  camera.position.set(view.yaw * 3.5 + view.fx * 0.7 + Math.sin(t * 0.12) * 0.7, alt, Math.sin(t * 0.06) * 0.8 + Math.max(alt - s.alt, 0) * s.dolly);   // Viola: climbing also pulls back, so the astronaut stays in frame
+  camera.rotation.set(Math.atan(-hs * view.tanh), -yaw, 0);
+  camera.fov = 2 * Math.atan(view.tanh) * 180 / Math.PI;
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  U.uTanh.value = view.tanh;
+  U.uCamRot.value.setFromMatrix4(camera.matrixWorld);
+  U.uFogD.value = 12 + 11 * alt;
+
+  // the hole is a fixed direction in the sky (with a very slow breathing drift)
+  const az = s.holeAz + Math.sin(t * 0.11) * 0.006, el = s.holeEl + Math.sin(t * 0.07) * 0.002;
+  holeDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+  U.uHoleDir.value.copy(holeDir);
+  camPos.copy(camera.position);
+  hv.copy(holeDir).multiplyScalar(1000).add(camPos).project(camera);
+  const inFront = holeDir.dot(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)) > 0;
+  grade.uniforms.uHoleUV.value = inFront ? [(hv.x + 1) / 2, (hv.y + 1) / 2] : [-5, -5];
+
+  const fl = 0.92 + 0.08 * Math.sin(t * 7.0) * Math.sin(t * 3.1);   // lamplight flicker
+  windowMat.color.setRGB(5.0 * fl, 2.2 * fl, 0.55 * fl);
+  if (viola.group.visible) viola.update(t, camera);
+
+  hud.update({ scene: current, mm: 12 / view.tanh, alt: camera.position.y, dist: s.camD, t, fps: fpsShown, scale: Math.round((QUALITY[settings.quality] || QUALITY.high).pixelRatio * 100) });
 }
+
 // debug: milliseconds per frame on the GPU, with parts of the scene switched off (used to see what the frame time is spent on)
 window.__bench = (n = 20, f = {}) => {
   const gl = renderer.getContext();
-  const parts = [truck, farm, windmill];
+  const parts = current === 'aurum' ? [truck, farm, ...(grass ? [grass] : [])] : [viola.group];   // f.noModels hides the active scene's content, f.noGrass only the wheat
   const was = parts.map((o) => o.visible);
-  const gv = grass.visible, sv = sky.visible, bv = bloomPass.enabled;
-  parts.forEach((o) => { o.visible = !f.noModels; });
-  grass.visible = !f.noGrass; sky.visible = !f.noSky; bloomPass.enabled = bv && !f.noBloom;
+  const sv = sky.visible, bv = bloomPass.enabled;
+  parts.forEach((o) => { o.visible = o === grass ? !f.noGrass : !f.noModels; });
+  sky.visible = !f.noSky; bloomPass.enabled = bv && !f.noBloom;
   const px = new Uint8Array(4);
   const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);   // reading a pixel makes the CPU wait for the GPU
   composer.render(); sync();
@@ -506,28 +514,38 @@ window.__bench = (n = 20, f = {}) => {
   for (let i = 0; i < n; i++) { update(30 + i * 0.016); composer.render(); sync(); }
   const ms = (performance.now() - t0) / n;
   parts.forEach((o, i) => { o.visible = was[i]; });
-  grass.visible = gv; sky.visible = sv; bloomPass.enabled = bv;
+  sky.visible = sv; bloomPass.enabled = bv;
   return ms;
 };
+// debug helper: window.__capture() returns a JPEG data URL of the current frame (used to make preview.jpg)
 window.__capture = (t) => { if (t !== undefined) update(t); composer.render(); return renderer.domElement.toDataURL('image/jpeg', 0.92); };
+window.__scene = (id) => { applyScene(id); fade = 0; pending = null; };
 
 // ---- loop ------------------------------------------------------------
-setPalette(settings.palette);
+applyScene(settings.scene === 'cycle' ? 'aurum' : SCENES[settings.scene] ? settings.scene : 'aurum');
+if (settings.scene === 'cycle') requestScene('cycle');
+if (query.get('alt')) target.alt = view.alt = clamp(Number(query.get('alt')), ALT_MIN, ALT_MAX);
+if (query.get('yaw')) target.yaw = view.yaw = Number(query.get('yaw'));
+if (query.get('lens')) target.tanh = view.tanh = 12 / clamp(Number(query.get('lens')), MM_MIN, MM_MAX);
+if (query.get('cx')) { cursor.x = Number(query.get('cx')); cursor.y = Number(query.get('cy') || 0); }
 applyQuality();
 const clock = new THREE.Clock();
-let sim = 0, acc = 0;
+let sim = Number(query.get('t')) || 0, acc = 0, shots = 0;
 function frame() {
   requestAnimationFrame(frame);
+  if (freeze && shots >= 4) return;
   const dt = clock.getDelta();
   acc += dt;
   const step = 1 / Math.max(settings.fps, 5);
   if (acc < step - 0.0005) return;
-  const d = Math.min(acc, 0.1) * settings.speed;
+  const d = freeze ? 0.016 : Math.min(acc, 0.1) * settings.speed;
   acc = 0;
   update(sim + d);
   composer.render();
+  shots++;
   fpsCount++;
   const now = performance.now();
   if (now - fpsStamp > 1000) { fpsShown = Math.round(fpsCount * 1000 / (now - fpsStamp)); fpsCount = 0; fpsStamp = now; }
 }
+lastT = sim;
 frame();
