@@ -24,7 +24,7 @@ export const AURUM = {
     [20, 26, -0.52, 8.0, 108, 0, 37, 0],
     [32, 23, -0.54, 8.5, 106, 0, 35, 0]
   ],
-  altMin: 1.9, altMax: 32, yawMax: 0.55,
+  altMin: 1.9, altMax: 32, yawMax: 0.18,
   alt: 4.05, hs0: -0.57, hs1: -0.36, dolly: 0, mm: 39, holeAz: -0.04, holeEl: 0.078,
   bloom: 0.65, bloomRadius: 0.35, exposure: 0.92
 };
@@ -56,21 +56,28 @@ export function createAurum(U) {
     base.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     base.setIndex(idx);
     const inst = new Float32Array(count * 3);
-    // Continuous dense golden wheat field: rich foreground stalks across the camera, surrounding the truck and house, and reaching deep into the distance
+    // Continuous dense golden wheat field: rich foreground stalks across the camera, surrounding the truck and house,
+    // and reaching deep into the distance with an organic radial distribution (zero straight cutoffs).
     for (let i = 0; i < count; i++) {
       const rz = Math.random();
       let z;
-      if (rz < 0.42) {
-        z = 15.0 - 42.0 * Math.pow(rz / 0.42, 1.2);    // +15m down to -27m (dense close foreground)
-      } else if (rz < 0.82) {
-        z = -27.0 - 45.0 * ((rz - 0.42) / 0.40);       // -27m down to -72m (midground around truck & house)
+      if (rz < 0.28) {
+        // Foreground in front of close camera (+25m down to -10m)
+        z = 25.0 - 35.0 * (rz / 0.28);
+      } else if (rz < 0.68) {
+        // Midground around truck and house (-10m down to -75m)
+        z = -10.0 - 65.0 * ((rz - 0.28) / 0.40);
+      } else if (rz < 0.88) {
+        // Background behind house (-75m down to -135m)
+        z = -75.0 - 60.0 * ((rz - 0.68) / 0.20);
       } else {
-        z = -72.0 - 50.0 * ((rz - 0.82) / 0.18);       // -72m down to -122m (background depth)
+        // Elevated wide camera foreground (+25m up to +125m) so from alt=32m camZ=106m the foreground is carpeted!
+        z = 25.0 + 100.0 * ((rz - 0.88) / 0.12);
       }
-      const depth = Math.max(0, 15.0 - z);
-      const spread = 55.0 + depth * 0.75;
+      const depth = Math.abs(z - 15.0);
+      const spread = 75.0 + depth * 0.65;
       const rx = (Math.random() - 0.5) * 2.0;
-      const x = Math.sign(rx) * Math.pow(Math.abs(rx), 0.90) * spread;
+      const x = Math.sign(rx) * Math.pow(Math.abs(rx), 0.92) * spread;
 
       inst[i * 3] = x;
       inst[i * 3 + 1] = z;

@@ -233,7 +233,7 @@ export function startApp(worlds) {
     const dx = x - drag.x, dy = y - drag.y;
     drag.x = x; drag.y = y;
     const lensK = clamp(view.tanh / 0.245, 0.3, 1.4);   // finer pan at long lenses: one pixel is a smaller angle
-    target.yaw = clamp(target.yaw - dx * 0.0035 * lensK, -yawLimit(), yawLimit());
+    target.yaw = clamp(target.yaw - dx * 0.0012 * lensK, -yawLimit(), yawLimit());
     target.alt = clamp(target.alt * Math.exp(-dy * 0.006), altMin(), altMax());
   }
   function onWheel(e) {
@@ -310,6 +310,7 @@ export function startApp(worlds) {
     for (const k in goal) view[k] += (goal[k] - view[k]) * ease;
     // one bad value (NaN from a lost event or a divide) would poison the camera matrix and turn the whole frame black: fall back to the scene's rest pose
     for (const k in view) if (!isFinite(view[k])) { view[k] = k === 'alt' ? s.alt : k === 'tanh' ? 12 / lensOf(s, s.alt) : 0; target.alt = s.alt; target.yaw = 0; }
+    view.tanh = Math.max(view.tanh, 0.05); view.alt = Math.max(view.alt, 0.5);
 
     // unified camera: pan with the cursor, drift slowly, climb with drag / arrow keys, a hint of lateral travel so near things slide over far ones
     const rg = s.rig ? rigAt(s.rig, view.alt) : null;
@@ -378,7 +379,7 @@ export function startApp(worlds) {
   let sim = Number(query.get('t')) || 0, acc = 0, shots = 0;
   function frame() {
     requestAnimationFrame(frame);
-    if (freeze && shots >= 4) return;
+    if (freeze && shots >= 15) return;
     const dt = clock.getDelta();
     acc += dt;
     const step = 1 / Math.max(settings.fps, 5);
