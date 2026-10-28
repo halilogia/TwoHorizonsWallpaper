@@ -5,6 +5,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import houseGlb from '../assets/models/house.glb';
+import truckGlb from '../assets/models/truck.glb';
 import {
   skyVert, skyFrag, grassVert, grassFrag, groundVert, groundFrag,
   emberVert, emberFrag, rimVert, rimFrag, smokeVert, smokeFrag, gradeShader
@@ -84,9 +87,12 @@ function buildGrass(count) {
   base.setIndex(idx);
   const inst = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    const z = -(1.5 + (-FAR_Z - 1.5) * Math.pow(Math.random(), 1.35));
-    const spread = 6 + (-z) * 1.6;
-    inst[i * 3] = (Math.random() * 2 - 1) * spread;
+    let x, z;
+    do {   // keep a bare patch of ground where the pickup stands
+      z = -(1.5 + (-FAR_Z - 1.5) * Math.pow(Math.random(), 1.35));
+      x = (Math.random() * 2 - 1) * (6 + (-z) * 1.6);
+    } while (x > -8.5 && x < 4.0 && z < -12.5 && z > -22.5);
+    inst[i * 3] = x;
     inst[i * 3 + 1] = z;
     inst[i * 3 + 2] = Math.random();
   }
@@ -125,53 +131,6 @@ function lightPool(w, d, color, strength) {
   return m;
 }
 
-function buildFarm() {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(4.6, 2.6, 3.2), dark);
-  body.position.y = 1.3;
-  const roofShape = new THREE.Shape([new THREE.Vector2(-2.7, 0), new THREE.Vector2(2.7, 0), new THREE.Vector2(0, 1.9)]);
-  const roof = new THREE.Mesh(new THREE.ExtrudeGeometry(roofShape, { depth: 3.7, bevelEnabled: false }), dark);
-  roof.position.set(0, 2.6, -1.85);
-  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1.3, 0.45), dark);
-  chimney.position.set(1.4, 4.1, -0.3);
-  const porch = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 1.0), dark);
-  porch.position.set(-0.6, 1.5, 2.1);
-  g.add(body, roof, chimney, porch);
-  const wins = [[-1.7, 1.5], [-0.55, 1.5], [0.7, 1.5], [1.7, 1.5], [-0.8, 3.3], [0.8, 3.3]];
-  wins.forEach(([x, y], i) => {
-    const attic = i > 3;                      // the two small windows sit on the gable face above the wall
-    if (attic) { y = 3.25; }
-    const zWin = attic ? 1.87 : 1.61;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(attic ? 0.4 : 0.55, attic ? 0.5 : 0.7), windowMat);
-    m.position.set(x, y, zWin);
-    g.add(m);
-    // window frame: cross bars and a sill
-    const w = attic ? 0.4 : 0.55, hh = attic ? 0.5 : 0.7;
-    for (const [bw, bh, bx, by] of [[w, 0.05, 0, 0], [0.05, hh, 0, 0], [w + 0.14, 0.07, 0, -hh / 2 - 0.03], [w + 0.14, 0.05, 0, hh / 2 + 0.02]]) {
-      const bar = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), dark);
-      bar.position.set(x + bx, y + by, zWin + 0.01);
-      g.add(bar);
-    }
-  });
-  // front door + porch posts
-  const door = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 1.4), dark);
-  door.position.set(-0.6, 0.7, 1.605);
-  g.add(door);
-  for (const px of [-1.6, 0.4]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.1), dark);
-    post.position.set(px, 0.75, 2.55);
-    g.add(post);
-  }
-  const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.1, 1.4), dark);   // slanted porch roof
-  porchRoof.position.set(-0.6, 2.05, 2.2);
-  porchRoof.rotation.x = 0.14;
-  g.add(porchRoof);
-  const pool = lightPool(9, 5, new THREE.Color(1.0, 0.55, 0.18), 1.3);
-  pool.position.set(0, 0.05, 4.4);
-  g.add(pool);
-  return g;
-}
-
 const windmillRotor = new THREE.Group();
 function buildWindmill() {
   const g = new THREE.Group();
@@ -192,37 +151,6 @@ function buildWindmill() {
   return g;
 }
 
-function buildTruck() {
-  const g = new THREE.Group();
-  const add = (geo, x, y, z) => { const m = new THREE.Mesh(geo, dark); m.position.set(x, y, z); g.add(m); return m; };
-  // side profile of a pickup, extruded across its width
-  const prof = new THREE.Shape([
-    new THREE.Vector2(-2.5, 0.45), new THREE.Vector2(2.5, 0.45), new THREE.Vector2(2.55, 1.15),
-    new THREE.Vector2(2.0, 1.35), new THREE.Vector2(1.35, 1.45), new THREE.Vector2(0.95, 2.2),
-    new THREE.Vector2(-0.15, 2.2), new THREE.Vector2(-0.3, 1.5), new THREE.Vector2(-2.5, 1.5)
-  ]);
-  const body = new THREE.Mesh(new THREE.ExtrudeGeometry(prof, { depth: 1.9, bevelEnabled: false }), dark);
-  body.position.z = -0.95;
-  g.add(body);
-  for (const x of [-1.5, 1.6]) for (const z of [-0.95, 0.95]) {
-    const w = add(new THREE.CylinderGeometry(0.46, 0.46, 0.3, 14), x, 0.46, z);
-    w.rotation.x = Math.PI / 2;
-  }
-  const lamp = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), windowMat);   // one dim tail lamp
-  lamp.position.set(-2.52, 1.0, 0.7); lamp.rotation.y = -Math.PI / 2;
-  g.add(lamp);
-  for (const z of [-1.05, 1.05]) add(new THREE.BoxGeometry(0.14, 0.22, 0.1), 1.2, 1.75, z);   // side mirrors
-  // headlights glowing toward +x, with a pool of light on the grass ahead of the truck
-  for (const z of [-0.65, 0.65]) {
-    const hl = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), windowMat);
-    hl.position.set(2.56, 0.95, z); hl.rotation.y = Math.PI / 2;
-    g.add(hl);
-  }
-  const beam = lightPool(7, 3, new THREE.Color(1.0, 0.85, 0.6), 0.9);
-  beam.position.set(5.8, 0.05, 0);
-  g.add(beam);
-  return g;
-}
 function buildTree() {
   const g = new THREE.Group();
   // leaf blobs have normals pointing every which way, so they use a flat silhouette instead of the rim-lit material
@@ -261,10 +189,55 @@ function buildPole() {
   return g;
 }
 
-const truck = buildTruck();
+// Blender models (modelled with Blender Copilot): glass parts glow, everything else is a rim-lit silhouette.
+// Each .glb is bundled as a data URL so the wallpaper needs no file access at run time.
+function attachModel(group, url, scale, onLoaded) {
+  new GLTFLoader().load(url, (gltf) => {
+    const root = gltf.scene;
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      const swap = (m) => (m.name.startsWith('glass') ? windowMat : dark);
+      o.material = Array.isArray(o.material) ? o.material.map(swap) : swap(o.material);
+    });
+    const box = new THREE.Box3().setFromObject(root);
+    const c = box.getCenter(new THREE.Vector3());
+    root.position.set(-c.x, -box.min.y, -c.z);
+    const holder = new THREE.Group();
+    holder.add(root);
+    holder.scale.setScalar(scale);
+    group.add(holder);
+    group.updateMatrixWorld(true);
+    if (onLoaded) onLoaded(group, root);
+  });
+}
+
+// world position of the top of a model (average of the vertices within `band` of its highest point)
+function topOf(root, band) {
+  const v = new THREE.Vector3(), pts = [];
+  let maxY = -Infinity;
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      pts.push(v.clone());
+      if (v.y > maxY) maxY = v.y;
+    }
+  });
+  const top = pts.filter((p) => p.y > maxY - band);
+  const out = new THREE.Vector3();
+  top.forEach((p) => out.add(p));
+  return out.multiplyScalar(1 / top.length);
+}
+
+const truck = new THREE.Group();
 truck.position.set(-2.2, 0, FAR_Z + 10);
 truck.rotation.y = 0.28;
-truck.scale.setScalar(1.35);
+attachModel(truck, truckGlb, 1.2, (g) => {
+  const beam = lightPool(7, 3, new THREE.Color(1.0, 0.85, 0.6), 0.9);   // headlight spill on the grass
+  beam.position.set(7.0, 0.05, 0);
+  g.add(beam);
+});
 const tree = buildTree();
 tree.position.set(-8.5, 0, FAR_Z + 2);
 const fence = buildFence();
@@ -308,9 +281,18 @@ const birds = [];
   }
 }
 
-const farm = buildFarm();
+const farm = new THREE.Group();
 farm.position.set(9.0, 0, FAR_Z + 2);
 farm.rotation.y = -0.08;
+attachModel(farm, houseGlb, 0.78, (g, root) => {
+  const pool = lightPool(10, 6, new THREE.Color(1.0, 0.55, 0.18), 1.3);   // window light on the yard
+  pool.position.set(0, 0.05, 5.5);
+  g.add(pool);
+  const top = topOf(root, 0.15);                                           // chimney: smoke starts here
+  const a = smoke.geometry.attributes.position;
+  for (let i = 0; i < a.count; i++) a.setXYZ(i, top.x, top.y, top.z);
+  a.needsUpdate = true;
+});
 const windmill = buildWindmill();
 windmill.position.set(-13.0, 0, FAR_Z + 3);
 scene.add(farm, windmill);
