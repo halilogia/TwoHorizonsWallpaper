@@ -33,7 +33,7 @@ export function createAurum(U) {
   const aurum = new THREE.Group();
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(900, 500).rotateX(-Math.PI / 2).translate(0, -0.01, -150),   // dark soil only near the camera; further out it fades to the water of the sky shader
+    new THREE.PlaneGeometry(1600, 900).rotateX(-Math.PI / 2).translate(0, -0.01, -300),   // rich dark amber soil blending smoothly with water reflection
     new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U, transparent: true, depthWrite: true })
   );
   ground.renderOrder = -1;
@@ -56,12 +56,23 @@ export function createAurum(U) {
     base.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     base.setIndex(idx);
     const inst = new Float32Array(count * 3);
-    // A foreground band only (frame 028): ends ~50 m ahead of the close-up camera and runs back past the dollied camera (z up to +62), so no bare patch
-    // shows below it on the mid lenses. Denser towards the camera, where the blades are big on screen. Beyond the band the ground is the glassy water of the sky shader.
+    // Continuous dense golden wheat field: rich foreground stalks across the camera, surrounding the truck and house, and reaching deep into the distance
     for (let i = 0; i < count; i++) {
-      const z = 62 - 114 * Math.pow(Math.random(), 1.3);
-      const spread = 40 + (62 - z) * 0.5;
-      inst[i * 3] = (Math.random() * 2 - 1) * spread;
+      const rz = Math.random();
+      let z;
+      if (rz < 0.42) {
+        z = 15.0 - 42.0 * Math.pow(rz / 0.42, 1.2);    // +15m down to -27m (dense close foreground)
+      } else if (rz < 0.82) {
+        z = -27.0 - 45.0 * ((rz - 0.42) / 0.40);       // -27m down to -72m (midground around truck & house)
+      } else {
+        z = -72.0 - 50.0 * ((rz - 0.82) / 0.18);       // -72m down to -122m (background depth)
+      }
+      const depth = Math.max(0, 15.0 - z);
+      const spread = 55.0 + depth * 0.75;
+      const rx = (Math.random() - 0.5) * 2.0;
+      const x = Math.sign(rx) * Math.pow(Math.abs(rx), 0.90) * spread;
+
+      inst[i * 3] = x;
       inst[i * 3 + 1] = z;
       inst[i * 3 + 2] = Math.random();
     }

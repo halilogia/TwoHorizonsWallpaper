@@ -102,10 +102,10 @@ vec3 background(vec3 d) {
 
 // accretion disk emission at a hit point on the equatorial plane
 vec4 diskSample(vec3 hit, vec3 rayDir) {
-  float rr = length(hit.xz);
+  float rr = max(length(hit.xz), 0.1);
   float edge = smoothstep(RIN, RIN + 0.6, rr) * smoothstep(uROut, uROut * 0.5, rr);
   float phi = atan(hit.z, hit.x);
-  float omega = 2.6 / (rr * sqrt(rr));                  // Keplerian: inner gas orbits much faster
+  float omega = 2.6 / max(rr * sqrt(rr), 0.01);        // Keplerian: inner gas orbits much faster
   float ph = phi - uTime * omega * 0.45;
   float a01 = ph / 6.2831853 + 0.5;
   float warp = pn(vec2(a01 * 5.0, rr * 1.3), 5.0);
@@ -114,11 +114,14 @@ vec4 diskSample(vec3 hit, vec3 rayDir) {
   float fil = pfbm(vec2(a01 * 24.0 + warp, rr * 26.0), 24.0);          // thin strands along the orbit
   float turb = 0.15 + 1.7 * smoothstep(0.22, 0.82, coarse * 0.42 + fine * 0.28 + fil * 0.38);
 
-  float T = pow(RIN / rr, 0.75) * 1.3;
-  vec3 vdir = normalize(vec3(-hit.z, 0.0, hit.x));      // sense of rotation (approaching side ends up on the left)
-  float beta = sqrt(0.5 / rr) * uDopp;
-  float cosA = dot(vdir, -rayDir);
-  float g = sqrt(1.0 - beta * beta) / (1.0 - beta * cosA) * sqrt(max(1.0 - 1.0 / rr, 0.03));
+  float T = pow(max(RIN / rr, 0.01), 0.75) * 1.3;
+  vec2 vxz = vec2(-hit.z, hit.x);
+  float lvxz = length(vxz);
+  vec3 vdir = lvxz > 1e-4 ? vec3(vxz.x / lvxz, 0.0, vxz.y / lvxz) : vec3(1.0, 0.0, 0.0);
+  float beta = clamp(sqrt(max(0.5 / rr, 0.0)) * uDopp, 0.0, 0.92);
+  float cosA = clamp(dot(vdir, -rayDir), -1.0, 1.0);
+  float g = sqrt(max(1.0 - beta * beta, 0.01)) / max(1.0 - beta * cosA, 0.05) * sqrt(max(1.0 - 1.0 / rr, 0.03));
+  g = max(g, 0.01);
 
   float spot = 1.0 + 0.9 * exp(-pow((abs(fract(phi / 6.2831853 - uTime * 0.02 + 0.5) - 0.5)) / 0.06, 2.0));
   float I = pow(T, 2.2) * turb * pow(g, 3.2) * edge * spot * (1.0 + 0.08 * sin(uTime * 0.7)) * uGain;
@@ -152,7 +155,9 @@ vec3 trace(vec3 rdW) {
   float trans = 1.0;
   float crossings = 0.0;
   if (b > uROut * 1.8 + 6.0) {
-    vel = normalize(rd - perp / b * (2.0 / b));
+    vec3 defl = rd - (perp / b) * (2.0 / b);
+    float ldefl = length(defl);
+    vel = ldefl > 1e-4 ? defl / ldefl : rd;
   } else {
     vec3 pos = ro;
     for (int i = 0; i < STEPS; i++) {
@@ -162,19 +167,22 @@ vec3 trace(vec3 rdW) {
       vec3 L = cross(pos, vel);
       float h2 = dot(L, L);
       float dt = clamp(0.055 * r + 0.012, 0.02, 1.2);
-      vec3 acc = -1.5 * h2 * pos / (r * r * r * r * r);
-      vec3 nv = normalize(vel + acc * dt);
+      vec3 acc = -1.5 * h2 * pos / max(r * r * r * r * r, 0.01);
+      vec3 nvel = vel + acc * dt;
+      float lnvel = length(nvel);
+      vec3 nv = lnvel > 1e-4 ? nvel / lnvel : vel;
       vec3 np = pos + nv * dt;
       if (pos.y * np.y < 0.0) {
-        float t = pos.y / (pos.y - np.y);
+        float denom = pos.y - np.y;
+        float t = abs(denom) > 1e-6 ? clamp(pos.y / denom, 0.0, 1.0) : 0.5;
         vec3 hit = mix(pos, np, t);
         float rr = length(hit.xz);
-        if (rr > RIN * 0.9 && rr < uROut) {
+        if (rr > RIN * 0.88 && rr < uROut) {
           crossings += 1.0;
           if (crossings > uRings) break;
           vec4 d = diskSample(hit, nv);
           col += trans * d.rgb;
-          trans *= 1.0 - d.a;
+          trans *= clamp(1.0 - d.a, 0.0, 1.0);
           if (trans < 0.02) break;
         }
       }
@@ -183,7 +191,9 @@ vec3 trace(vec3 rdW) {
   }
   if (!swallowed && trans > 0.02) {
     vec3 wv = gR * dot(vel, rgt) + gU * dot(vel, up) + gF * dot(vel, f);   // back into world space
-    col += trans * background(normalize(wv));
+    float lwv = length(wv);
+    vec3 nwv = lwv > 1e-4 ? wv / lwv : gF;
+    col += trans * background(nwv);
   }
   return col;
 }
@@ -245,7 +255,10 @@ void main() {
     float rip = pn(vec2(px * 2.5 + uTime * 0.2, dy * 70.0 - uTime * 0.6), 1000.0) - 0.5;
     float streak = 0.55 + 0.9 * pn(vec2(px * 4.0, dy * 200.0 + uTime * 0.4), 1000.0);
     vec3 rm = normalize(vec3(rd.x + rip * 0.012 * (dy * 5.0 + 0.2) * K0, -rd.y, rd.z));
-    vec3 refl = sky(rm);                     // one trace per water pixel, shared by the Aurum water and the Viola haze
+    vec3 refl = vec3(0.0);
+    if (dy < 0.70) {
+      refl = sky(rm);                        // trace reflections only near horizon, protecting GPU from timeout
+    }
     // the reference ground is a calm golden mirror: brightest at the horizon, sinking to dark amber towards the camera, only a soft glow under the hole
     float sink = exp(-dy * 3.0);
     float hxs = dot(rm, gR) / max(dot(rm, gF), 0.05) / 0.39;
@@ -259,8 +272,12 @@ void main() {
     vec3 haze = uBandCol * (0.82 + 0.30 * exp(-dy * 2.5)) + refl * 0.10;
     col = mix(water, haze, uSky);
   }
-  if (any(isnan(col)) || any(isinf(col))) col = vec3(0.0);   // one bad ray must not reach the bloom blur: it would smear NaN over the whole frame
-  gl_FragColor = vec4(min(col, vec3(64.0)), 1.0);
+  // Robust IEEE NaN & Inf filter without relying on buggy driver isnan():
+  vec3 safeSky = uMid * 0.12 + uCool * 0.02;
+  if (!(col.r >= 0.0 && col.r <= 64.0)) col.r = safeSky.r;
+  if (!(col.g >= 0.0 && col.g <= 64.0)) col.g = safeSky.g;
+  if (!(col.b >= 0.0 && col.b <= 64.0)) col.b = safeSky.b;
+  gl_FragColor = vec4(clamp(col, 0.0, 48.0), 1.0);
 }`;
 
 // ---- Aurum: wheat ---------------------------------------------------------
@@ -274,6 +291,7 @@ varying float vDepth;
 varying float vX;
 varying float vSeed;
 varying float vFace;
+varying float vGust;
 
 void main() {
   float hgt = position.y;
@@ -282,20 +300,25 @@ void main() {
   float depth = -aInst.y;
   float yaw = fract(seed * 91.7) * 3.14159;
   vec2 sideDir = vec2(cos(yaw), sin(yaw));
-  float tall = step(0.93, fract(seed * 37.1));     // the odd tall seed stalk
-  float height = mix(0.55, 1.05, fract(seed * 7.31)) * (1.0 + tall * 0.5) * uWheat;
-  float width = clamp(0.022 + depth * 0.0005, 0.02, 0.06) * (1.0 - hgt * 0.88);
+  float tall = step(0.92, fract(seed * 37.1));     // tall seed stalks with plump heads
+  float height = mix(0.70, 1.35, fract(seed * 7.31)) * (1.0 + tall * 0.45);
+  float width = clamp(0.026 + depth * 0.0004, 0.024, 0.065) * (1.0 - hgt * 0.85);
   vec3 pos = vec3(aInst.x + sideDir.x * side * width, hgt * height, aInst.y + sideDir.y * side * width);
-  float w = sin(uTime * uWind * 1.3 + aInst.x * 0.35 + aInst.y * 0.2 + seed * 6.0) * 0.5
-          + sin(uTime * uWind * 2.1 + aInst.x * 0.8 + seed * 11.0) * 0.5;
-  float gust = sin(aInst.x * 0.09 - uTime * uWind * 0.9 + aInst.y * 0.05);   // wind front rolling across the field
-  float bend = hgt * hgt;
-  pos.x += (w * 0.22 + gust * 0.34) * bend * (1.0 + tall * 0.4);
-  pos.z += (w * 0.06 + gust * 0.12) * bend;
-  pos.y -= bend * 0.12 * abs(gust);
+
+  // Cinematic wind waves sweeping across the wheat field
+  float wave1 = sin(aInst.x * 0.075 + aInst.y * 0.12 - uTime * uWind * 2.3);
+  float wave2 = sin(aInst.x * 0.14 - aInst.y * 0.06 - uTime * uWind * 3.5 + seed * 3.14159);
+  float gust = wave1 * 0.65 + wave2 * 0.35;
+  float flutter = sin(uTime * uWind * 4.8 + seed * 23.1 + aInst.x * 0.8) * 0.22;
+  float bend = pow(hgt, 1.75);
+
+  pos.x += (gust * 0.46 + flutter * 0.18 + 0.16) * bend * (1.0 + tall * 0.35);
+  pos.z += (gust * 0.26 + flutter * 0.12 + 0.08) * bend;
+  pos.y -= (abs(gust) * 0.22 + 0.06) * bend;
+
   vec4 mv = viewMatrix * vec4(pos, 1.0);
-  gl_Position = uWheat < 0.02 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * mv;   // flat ground on the far lenses: nothing to draw
-  vH = hgt; vDepth = length(mv.xyz); vX = pos.x; vSeed = seed; vFace = abs(cos(yaw));
+  gl_Position = projectionMatrix * mv;
+  vH = hgt; vDepth = length(mv.xyz); vX = pos.x; vSeed = seed; vFace = abs(cos(yaw)); vGust = gust;
 }`;
 
 export const grassFrag = /* glsl */ `
@@ -307,20 +330,25 @@ varying float vDepth;
 varying float vX;
 varying float vSeed;
 varying float vFace;
+varying float vGust;
 
 void main() {
-  float far = smoothstep(6.0, 75.0, vDepth);
+  float far = smoothstep(6.0, 95.0, vDepth);
   float lit = 0.55 + 0.6 * smoothstep(20.0, -75.0, vX);
   float s = fract(vSeed * 13.7);
-  vec3 dry = mix(vec3(0.62, 0.38, 0.09), vec3(0.64, 0.46, 0.14), s);          // golden to olive straw
-  vec3 base = mix(dry * 0.04, dry * 0.22, vH);                                  // dark roots
-  float back = pow(vH, 1.6) * mix(0.12, 1.0, far * far) * lit;                  // light shining through the blade
+  vec3 dry = mix(vec3(0.64, 0.40, 0.10), vec3(0.68, 0.48, 0.15), s);          // rich golden amber straw
+  vec3 base = mix(dry * 0.04, dry * 0.25, vH);                                  // dark roots
+  float back = pow(vH, 1.5) * mix(0.15, 1.0, far * far) * lit;                  // light shining through the blade
   float trans = 0.55 + 0.9 * vFace;
-  vec3 glow = mix(uMid, uHot, smoothstep(0.55, 1.0, vH) * 0.75) * back * trans * (0.65 + 0.7 * s);
-  float glint = step(0.97, fract(vSeed * 53.1)) * pow(vH, 3.0) * mix(0.3, 1.6, far);
-  vec3 col = base + glow + uHot * glint * 0.8;
-  col *= mix(0.20, 1.0, smoothstep(4.0, 60.0, vDepth));                         // foreground sits in shadow
-  col = mix(col, uMid * 0.14, smoothstep(50.0, 78.0, vDepth) * 0.6);            // horizon mist
+  vec3 glow = mix(uMid, uHot, smoothstep(0.5, 1.0, vH) * 0.8) * back * trans * (0.7 + 0.7 * s);
+  float glint = step(0.96, fract(vSeed * 53.1)) * pow(vH, 2.8) * mix(0.4, 1.8, far);
+  
+  // Dynamic golden shimmer as wind ripples compress and tilt the wheat heads
+  float sheen = smoothstep(0.35, 0.95, vGust * 0.5 + 0.5) * pow(vH, 2.2) * lit;
+  vec3 col = base + glow + uHot * glint * 0.85 + mix(uMid, uHot, 0.75) * sheen * 0.85;
+
+  col *= mix(0.25, 1.0, smoothstep(4.0, 55.0, vDepth));                         // foreground depth
+  col = mix(col, uMid * 0.16, smoothstep(60.0, 110.0, vDepth) * 0.65);          // atmospheric blend
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -367,7 +395,7 @@ void main() {
   vec2 dH = abs(vW.xz - vec2(14.0, -62.0));
   vec2 dT = abs(vW.xz - vec2(-3.7, -38.0));
   soil *= clamp(1.0 - 0.7 * (1.0 - smoothstep(0.0, 1.5, max(dH.x - 8.2, 0.0) + max(dH.y - 5.5, 0.0))) - 0.7 * (1.0 - smoothstep(0.0, 1.2, max(dT.x - 3.3, 0.0) + max(dT.y - 1.3, 0.0))), 0.2, 1.0);
-  float alpha = 1.0 - smoothstep(18.0, 95.0, vDist);
+  float alpha = 1.0 - smoothstep(35.0, 220.0, vDist);
   gl_FragColor = vec4(soil, alpha);
 }`;
 
@@ -635,7 +663,9 @@ export const gradeShader = {
       c *= 1.0 - dot(q, q) * 0.9;
       c += (h(vUv * 1000.0 + fract(uTime) * 7.0) - 0.5) * 0.018;
       c *= 1.0 - clamp(uFade, 0.0, 1.0);
-      if (any(isnan(c)) || any(isinf(c))) c = vec3(0.012, 0.008, 0.005);
-      gl_FragColor = vec4(clamp(c, 0.0, 12.0), 1.0);
+      if (!(c.r >= 0.0 && c.r <= 12.0)) c.r = 0.015;
+      if (!(c.g >= 0.0 && c.g <= 12.0)) c.g = 0.010;
+      if (!(c.b >= 0.0 && c.b <= 12.0)) c.b = 0.006;
+      gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
     }`
 };

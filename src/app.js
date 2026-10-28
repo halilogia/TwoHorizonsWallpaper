@@ -38,9 +38,9 @@ export function startApp(worlds) {
     return Math.exp(Math.log(a0) + (Math.log(a1) - Math.log(a0)) * k);
   }
   const QUALITY = {
-    low:    { pixelRatio: 0.6,  grass: 14000,  flowers: 18000,  embers: 60,  fireflies: 120, bloom: false, steps: 90 },
-    medium: { pixelRatio: 0.85, grass: 45000,  flowers: 55000,  embers: 140, fireflies: 300, bloom: true,  steps: 160 },
-    high:   { pixelRatio: 1.0,  grass: 120000, flowers: 110000, embers: 300, fireflies: 600, bloom: true,  steps: 240 }
+    low:    { pixelRatio: 0.65, grass: 35000,  flowers: 20000,  embers: 60,  fireflies: 120, bloom: false, steps: 90 },
+    medium: { pixelRatio: 0.85, grass: 80000,  flowers: 60000,  embers: 140, fireflies: 300, bloom: true,  steps: 160 },
+    high:   { pixelRatio: 1.0,  grass: 160000, flowers: 110000, embers: 300, fireflies: 600, bloom: true,  steps: 240 }
   };
 
   const query = new URLSearchParams(location.search);
@@ -86,6 +86,8 @@ export function startApp(worlds) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
+  renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); }, false);
+  renderer.domElement.addEventListener('webglcontextrestored', () => { applyQuality(); }, false);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 1500);
@@ -324,7 +326,7 @@ export function startApp(worlds) {
     U.uTanh.value = view.tanh;
     U.uCamRot.value.setFromMatrix4(camera.matrixWorld);
     U.uFogD.value = 12 + 11 * alt;
-    if (s.rig) { const mm = rg.mm; U.uWheat.value = smooth(100, 72, mm) * smooth(36, 50, mm); }
+    U.uWheat.value = 1.0;
 
     // the hole is a fixed direction in the sky (with a very slow breathing drift)
     const az = s.holeAz + Math.sin(t * 0.11) * 0.006, el = s.holeEl + Math.sin(t * 0.07) * 0.002;
