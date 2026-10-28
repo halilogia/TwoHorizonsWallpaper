@@ -33,7 +33,7 @@ const settings = {
   bloom: 1.0,
   speed: 1.0,
   parallax: true,
-  control: true,
+  mode: query.get('mode') || 'drag',   // Wallpaper Engine switches this to its own default (follow) when it sends properties
   stars: 1.0
 };
 
@@ -404,20 +404,32 @@ window.addEventListener('mousemove', (e) => {
   mouse.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1));
 });
 
-// Camera controls: drag = fly around the hole (left/right) and above or below the disk (up/down), wheel = lens, double click = reset.
+// Camera controls. Two modes: "follow" (the camera follows the cursor: works on the desktop, where Wallpaper Engine passes
+// mouse movement but usually swallows clicks) and "drag" (hold the button and drag: works in a normal window).
+// Wheel = lens, double click = reset. Mouse and pointer events are both listened to, because hosts differ in which they send.
 const VIEW_HOME = { inc: 0.115, yaw: 0, tanh: 0.39 };
 const view = { ...VIEW_HOME, drag: false, x: 0, y: 0 };
 const target = { ...VIEW_HOME };
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-window.addEventListener('pointerdown', (e) => { if (settings.control) { view.drag = true; view.x = e.clientX; view.y = e.clientY; } });
-window.addEventListener('pointerup', () => { view.drag = false; });
-window.addEventListener('pointermove', (e) => {
-  if (!view.drag || !settings.control) return;
-  target.yaw = clamp(target.yaw + (e.clientX - view.x) * 0.004, -1.3, 1.3);
-  target.inc = clamp(target.inc + (e.clientY - view.y) * 0.003, 0.02, 0.8);
-  view.x = e.clientX; view.y = e.clientY;
-});
-window.addEventListener('wheel', (e) => { if (settings.control) target.tanh = clamp(target.tanh * Math.exp(e.deltaY * 0.0008), 0.17, 0.9); }, { passive: true });
+const evCount = { down: 0, move: 0, wheel: 0 };   // shown in the HUD, to see what the host really delivers
+function onDown(x, y) { evCount.down++; if (settings.mode === 'drag') { view.drag = true; view.x = x; view.y = y; } }
+function onUp() { view.drag = false; }
+function onMove(x, y) {
+  evCount.move++;
+  if (settings.mode === 'follow') {
+    target.yaw = clamp((x / window.innerWidth - 0.5) * 2 * 0.9, -1.3, 1.3);
+    target.inc = clamp(VIEW_HOME.inc + (0.5 - y / window.innerHeight) * 0.7, 0.02, 0.8);
+  } else if (settings.mode === 'drag' && view.drag) {
+    target.yaw = clamp(target.yaw + (x - view.x) * 0.004, -1.3, 1.3);
+    target.inc = clamp(target.inc + (y - view.y) * 0.003, 0.02, 0.8);
+    view.x = x; view.y = y;
+  }
+}
+function onWheel(dy) { evCount.wheel++; if (settings.mode !== 'off') target.tanh = clamp(target.tanh * Math.exp(dy * 0.0008), 0.17, 0.9); }
+for (const t of ['pointerdown', 'mousedown']) window.addEventListener(t, (e) => onDown(e.clientX, e.clientY));
+for (const t of ['pointerup', 'mouseup']) window.addEventListener(t, onUp);
+for (const t of ['pointermove', 'mousemove']) window.addEventListener(t, (e) => onMove(e.clientX, e.clientY));
+window.addEventListener('wheel', (e) => onWheel(e.deltaY), { passive: true });
 window.addEventListener('dblclick', () => Object.assign(target, VIEW_HOME));
 
 // Wallpaper Engine property bridge
@@ -432,7 +444,7 @@ window.wallpaperPropertyListener = {
     if (p.parallax) settings.parallax = !!p.parallax.value;
     if (p.stars) { settings.stars = p.stars.value; U.uStars.value = settings.stars; }
     if (p.hud) setHud(!!p.hud.value);
-    if (p.control) settings.control = !!p.control.value;
+    if (p.mousemode) settings.mode = p.mousemode.value;
     if (p.rays) grade.uniforms.uRays.value = p.rays.value;
     if (rebuild) applyQuality();
   }
@@ -475,7 +487,7 @@ function update(t) {
     const inc = (view.inc + 0.03 * Math.sin(t * 0.09)) * 57.2958;
     const s = Math.floor(t);
     const clock = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':');
-    hudData.textContent = `DIST 22.0 Rs   INC ${inc.toFixed(1)}°   LENS ${Math.round(12 / view.tanh)} mm   T ${clock}   ${fpsShown} FPS`;
+    hudData.textContent = `DIST 22.0 Rs   INC ${inc.toFixed(1)}°   LENS ${Math.round(12 / view.tanh)} mm   T ${clock}   EVT ${evCount.down}/${evCount.move}/${evCount.wheel}   ${fpsShown} FPS`;
     hudTitle.textContent = U.uHot.value.r > 0.9 && U.uMid.value.b < 0.5 ? 'Ember' : 'Indigo';
   }
 }

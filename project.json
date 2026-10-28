@@ -31,7 +31,7 @@
       "stars": { "order": 7, "text": "Stars", "type": "slider", "value": 1.0, "min": 0, "max": 2, "step": 0.05, "fraction": true },
       "rays": { "order": 8, "text": "Light rays", "type": "slider", "value": 1.0, "min": 0, "max": 2, "step": 0.05, "fraction": true },
       "hud": { "order": 9, "text": "Show HUD", "type": "bool", "value": false },
-      "control": { "order": 10, "text": "Mouse control (drag to orbit, wheel for lens)", "type": "bool", "value": true }
+      "mousemode": { "order": 10, "text": "Mouse control", "type": "combo", "value": "follow", "options": [ { "label": "Follow cursor (works on the desktop)", "value": "follow" }, { "label": "Drag with button (in a window)", "value": "drag" }, { "label": "Off", "value": "off" } ] }
     }
   }
 }
