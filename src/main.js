@@ -265,7 +265,7 @@ const birds = [];
 const farm = new THREE.Group();
 farm.position.set(9.0, 0, FAR_Z + 2);
 farm.rotation.y = -0.08;
-attachModel(farm, houseGlb, 0.78, (g, root) => {
+attachModel(farm, houseGlb, 0.95, (g, root) => {
   const pool = lightPool(10, 6, new THREE.Color(1.0, 0.55, 0.18), 1.3);   // window light on the yard
   pool.position.set(0, 0.05, 5.5);
   g.add(pool);

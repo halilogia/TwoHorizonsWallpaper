@@ -121,6 +121,86 @@ def build_house():
     return objs[start:]
 
 
+def tool(tool_name, **args):
+    r = mcp.call(tool_name, args)
+    if not r.get("success"):
+        raise SystemExit("%s failed: %s" % (tool_name, json.dumps(r)[:300]))
+    return r["data"]["object_name"]
+
+
+def paint(obj, mat):
+    r = mcp.call("set_material", dict(object_name=obj, material_name=mat, **MATS[mat]))
+    if not r.get("success"):
+        raise SystemExit("set_material failed: %s" % json.dumps(r)[:300])
+    objs.append(obj)
+    return obj
+
+
+def ext(name, profile, axis, a0, a1, mat, taper=1.0):
+    return paint(tool("create_extrusion", name=name, profile=profile, axis=axis, start=a0, end=a1, taper=taper), mat)
+
+
+def slab(name, x0, x1, y0, y1, z0, z1, mat):
+    return ext(name, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], "Z", z0, z1, mat)
+
+
+def bar(name, p0, p1, w, t, mat, shape="BOX", **kw):
+    return paint(tool("create_beam", name=name, start=p0, end=p1, width=w, thickness=t, shape=shape, **kw), mat)
+
+
+def build_house2():
+    """Farmhouse v2, built with create_extrusion / create_beam (Blender Copilot): bigger windows with panes and shutters,
+    dormer, porch with railing and a lantern, tapered chimney, fascia boards."""
+    start = len(objs)
+    FY = -1.7
+    slab("h_found", -2.7, 4.4, -1.8, 1.8, -0.1, 0.3, "trim")
+    slab("h_body", -2.6, 2.0, -1.7, 1.7, 0.0, 2.6, "wall")
+    ext("h_roof", [[-3.05, 2.5], [2.45, 2.5], [-0.3, 4.6]], "Y", -2.2, 2.2, "roof")
+    ext("h_fascia", [[-3.1, 2.46], [2.5, 2.46], [2.45, 2.56], [-3.05, 2.56]], "Y", -2.25, 2.25, "trim")
+    slab("h_wing", 2.0, 4.3, -1.4, 1.4, 0.0, 2.0, "wall")
+    ext("h_wingroof", [[-1.85, 1.95], [1.85, 1.95], [0.0, 3.35]], "X", 1.7, 4.7, "roof")
+    # chimney: tapered stack with a cap
+    ext("h_chim", [[-1.85, 0.0], [-1.35, 0.0], [-1.35, 0.5], [-1.85, 0.5]], "Z", 3.0, 5.0, "wall", taper=0.9)
+    slab("h_chimcap", -1.95, -1.25, -0.1, 0.6, 5.0, 5.12, "trim")
+    # porch: deck, posts, rail with balusters, slanted roof, steps, lantern
+    slab("h_pfloor", -2.5, 0.4, -2.75, -1.7, 0.0, 0.25, "trim")
+    for i, x in enumerate((-2.4, 0.3)):
+        bar("h_ppost%d" % i, [x, -2.68, 0.25], [x, -2.68, 2.3], 0.16, 0.16, "trim")
+    bar("h_prail", [-2.4, -2.68, 1.0], [0.3, -2.68, 1.0], 0.07, 0.1, "trim")
+    for i in range(9):
+        x = -2.3 + i * 0.3
+        if -1.35 < x < -0.4:
+            continue    # the steps are here
+        bar("h_bal%d" % i, [x, -2.68, 0.25], [x, -2.68, 1.0], 0.05, 0.05, "trim")
+    ext("h_proof", [[-1.7, 2.6], [-2.95, 2.12], [-2.95, 2.27], [-1.7, 2.75]], "X", -2.65, 0.55, "roof")
+    slab("h_step1", -1.3, -0.4, -3.05, -2.7, 0.0, 0.12, "trim")
+    slab("h_step2", -1.3, -0.4, -2.9, -2.7, 0.12, 0.2, "trim")
+    slab("h_lamp", -0.35, -0.2, -2.74, -2.62, 1.7, 1.95, "glass")
+    slab("h_door", -1.25, -0.45, -1.76, -1.7, 0.25, 2.1, "door")
+    # windows: glass, frame, mullions and shutters
+    def window(prefix, cx, z0, z1, y, w=0.78, shutters=True):
+        x0, x1 = cx - w / 2, cx + w / 2
+        slab(prefix + "_g", x0, x1, y - 0.03, y, z0, z1, "glass")
+        t = 0.06
+        slab(prefix + "_t", x0 - t, x1 + t, y - 0.07, y - 0.02, z1, z1 + t, "trim")
+        slab(prefix + "_b", x0 - 2 * t, x1 + 2 * t, y - 0.1, y - 0.02, z0 - t, z0, "trim")
+        slab(prefix + "_l", x0 - t, x0, y - 0.07, y - 0.02, z0, z1, "trim")
+        slab(prefix + "_r", x1, x1 + t, y - 0.07, y - 0.02, z0, z1, "trim")
+        slab(prefix + "_m", cx - 0.02, cx + 0.02, y - 0.07, y - 0.02, z0, z1, "trim")
+        for k in (1, 2):
+            zz = z0 + (z1 - z0) * k / 3
+            slab(prefix + "_h%d" % k, x0, x1, y - 0.07, y - 0.02, zz - 0.02, zz + 0.02, "trim")
+        if shutters:
+            slab(prefix + "_sl", x0 - t - 0.34, x0 - t - 0.04, y - 0.06, y - 0.02, z0 - t, z1 + t, "door")
+            slab(prefix + "_sr", x1 + t + 0.04, x1 + t + 0.34, y - 0.06, y - 0.02, z0 - t, z1 + t, "door")
+    window("w1", -2.0, 0.95, 2.15, FY)
+    window("w2", 0.55, 0.95, 2.15, FY)
+    window("w3", 1.5, 0.95, 2.15, FY, shutters=False)
+    window("w4", 3.15, 0.8, 1.7, -1.4, w=0.7)
+    window("wa", -0.3, 2.95, 3.75, -2.23, w=0.6, shutters=False)
+    return objs[start:]
+
+
 def build_truck():
     start = len(objs)
     prism("t_body", [(-2.6, 0.5), (2.72, 0.5), (2.78, 0.95), (2.65, 1.18), (1.3, 1.25), (-0.45, 1.25), (-0.45, 1.0), (-2.6, 1.0)], "y", -0.95, 0.95, "paint")
@@ -217,6 +297,9 @@ if __name__ == "__main__":
     if which == "house":
         g = build_house()
         finish(g, "house.glb", "FarmHouse")
+    elif which == "house2":
+        g = build_house2()
+        finish(g, "house.glb", "FarmHouse2")
     elif which == "truck":
         g = build_truck()
         finish(g, "truck.glb", "PickupTruckB")
