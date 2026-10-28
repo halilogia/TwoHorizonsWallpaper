@@ -273,8 +273,8 @@ void main() {
   float yaw = fract(seed * 91.7) * 3.14159;
   vec2 sideDir = vec2(cos(yaw), sin(yaw));
   float tall = step(0.93, fract(seed * 37.1));     // the odd tall seed stalk
-  float height = mix(0.5, 1.2, fract(seed * 7.31)) * (1.0 + tall * 0.55) * mix(1.0, 0.4, smoothstep(10.0, 55.0, depth));   // the field flattens toward the far edge
-  float width = (0.035 + depth * 0.004) * (1.0 - hgt * 0.88);
+  float height = mix(0.65, 1.35, fract(seed * 7.31)) * (1.0 + tall * 0.5);
+  float width = clamp(0.032 + depth * 0.0006, 0.025, 0.08) * (1.0 - hgt * 0.88);
   vec3 pos = vec3(aInst.x + sideDir.x * side * width, hgt * height, aInst.y + sideDir.y * side * width);
   float w = sin(uTime * uWind * 1.3 + aInst.x * 0.35 + aInst.y * 0.2 + seed * 6.0) * 0.5
           + sin(uTime * uWind * 2.1 + aInst.x * 0.8 + seed * 11.0) * 0.5;
@@ -649,14 +649,18 @@ export const gradeShader = {
       vec3 rays = vec3(0.0);
       float decay = 1.0;
       for (int k = 0; k < 28; k++) {
-        vec2 sp = mix(vUv, uHoleUV, float(k) / 28.0 * 0.6);
-        rays += max(texture2D(tDiffuse, sp).rgb - 0.86, 0.0) * decay;
+        vec2 sp = clamp(mix(vUv, uHoleUV, float(k) / 28.0 * 0.6), 0.001, 0.999);
+        vec3 samp = texture2D(tDiffuse, sp).rgb;
+        if (!any(isnan(samp))) {
+          rays += max(samp - 0.86, 0.0) * decay;
+        }
         decay *= 0.93;
       }
       c += rays * 0.032 * uRays * (1.0 - 0.7 * uHaze);
       c *= 1.0 - dot(q, q) * 0.9;
       c += (h(vUv * 1000.0 + fract(uTime) * 7.0) - 0.5) * 0.018;
-      c *= 1.0 - uFade;
-      gl_FragColor = vec4(c, 1.0);
+      c *= 1.0 - clamp(uFade, 0.0, 1.0);
+      if (any(isnan(c)) || any(isinf(c))) c = vec3(0.012, 0.008, 0.005);
+      gl_FragColor = vec4(clamp(c, 0.0, 12.0), 1.0);
     }`
 };

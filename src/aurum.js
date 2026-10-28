@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import houseGlb from '../assets/models/house.glb';
 import truckGlb from '../assets/models/truck.glb';
-import windmillGlb from '../assets/models/windmill.glb';
 import {
   groundVert, groundFrag, grassVert, grassFrag, rimVert, rimFrag, emberVert, emberFrag, smokeVert, smokeFrag
 } from './shaders.js';
@@ -11,27 +10,29 @@ import {
 export const AURUM = {
   id: 'aurum',
   name: 'Aurum', tagline: 'The last farm before the event horizon',
-  hot: [1.00, 0.82, 0.50], mid: [1.00, 0.45, 0.10], cool: [0.50, 0.12, 0.03],
-  camD: 18.0, inc: 0.10, rOut: 9, dopp: 1, gain: 1.0, sky: 0,
+  hot: [1.00, 0.85, 0.52], mid: [1.00, 0.48, 0.12], cool: [0.52, 0.14, 0.03],
+  camD: 18.0, inc: 0.10, rOut: 9.2, dopp: 1.05, gain: 1.15, sky: 0,
   skyTop: [0, 0, 0], skyLow: [0, 0, 0], band: [0, 0, 0],
-  // camera rig read off the reference video (frames 020-025): [alt m, lens mm, horizon height on screen]. Climbing widens the lens and pulls back a little.
-  rig: [[1.9, 107, -0.32], [4.05, 39, -0.57], [13, 29, -0.52], [20, 26, -0.42], [32, 23, -0.36]],
-  altMin: 1.9, altMax: 32, yawMax: 0.55,
+  // camera rig read off reference video (frames 020-025): [alt m, lens mm, horizon height on screen].
+  rig: [[1.92, 100, -0.32], [4.05, 39, -0.57], [13, 29, -0.52], [20, 26, -0.42], [32, 23, -0.36]],
+  altMin: 1.92, altMax: 32, yawMax: 0.55,
   alt: 4.05, hs0: -0.57, hs1: -0.36, dolly: 1.2, mm: 39, holeAz: -0.04, holeEl: 0.078,
-  bloom: 0.4, bloomRadius: 0.25, exposure: 0.85
+  bloom: 0.65, bloomRadius: 0.35, exposure: 0.92
 };
 
 export function createAurum(U) {
   const aurum = new THREE.Group();
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(3600, 2200).rotateX(-Math.PI / 2).translate(0, -0.01, -1000),
+    new THREE.PlaneGeometry(3600, 2400).rotateX(-Math.PI / 2).translate(0, -0.01, -1100),
     new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: U, transparent: true, depthWrite: true })
   );
   ground.renderOrder = -1;
   aurum.add(ground);
 
-  const TRUCK_AT = new THREE.Vector3(-4.8, -0.06, -84), HOUSE_AT = new THREE.Vector3(7.2, -0.04, -88), MILL_AT = new THREE.Vector3(-48, -0.04, -115);
+  const TRUCK_AT = new THREE.Vector3(-4.8, -0.06, -84);
+  const HOUSE_AT = new THREE.Vector3(7.2, -0.04, -88);
+
   /** @type {THREE.Mesh | null} */
   let grass = null;
   function buildGrass(count) {
@@ -77,7 +78,7 @@ export function createAurum(U) {
     vertexShader: rimVert, fragmentShader: rimFrag,
     uniforms: { uHot: U.uHot, uMid: U.uMid, uBase: { value: new THREE.Color(0.016, 0.010, 0.007) }, uRim: { value: 1 } }
   });
-  const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5.0, 2.2, 0.55), toneMapped: false });
+  const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5.5, 2.4, 0.6), toneMapped: false });
 
   // soft additive light pool (house windows, truck headlights) laid on the ground
   function glowTexture() {
@@ -102,8 +103,6 @@ export function createAurum(U) {
     return m;
   }
 
-  // Blender models (modelled with Blender Copilot): glass parts glow, everything else is a rim-lit silhouette.
-  // Each .glb is bundled as a data URL so the wallpaper needs no file access at run time.
   function attachModel(group, url, scale, onLoaded) {
     new GLTFLoader().load(url, (gltf) => {
       const root = gltf.scene;
@@ -124,7 +123,6 @@ export function createAurum(U) {
     });
   }
 
-  // world position of the top of a model (average of the vertices within `band` of its highest point)
   function topOf(root, band) {
     const v = new THREE.Vector3(), pts = [];
     let maxY = -Infinity;
@@ -143,7 +141,6 @@ export function createAurum(U) {
     return out.multiplyScalar(1 / top.length);
   }
 
-  // the dog on the porch (profile facing +x, looking out at the hole)
   function buildDog() {
     const g = new THREE.Group();
     const part = (geo, x, y, z, rx = 0, ry = 0, rz = 0) => {
@@ -166,7 +163,7 @@ export function createAurum(U) {
   truck.position.copy(TRUCK_AT);
   truck.rotation.y = 0.12;
   attachModel(truck, truckGlb, 1.15, (g) => {
-    const beam = lightPool(7, 3, new THREE.Color(1.0, 0.85, 0.6), 0.9);   // headlight spill on the grass
+    const beam = lightPool(8, 4, new THREE.Color(1.0, 0.85, 0.6), 1.0);   // headlight spill on the grass
     beam.position.set(7.0, 0.05, 0);
     g.add(beam);
   });
@@ -177,7 +174,7 @@ export function createAurum(U) {
   farm.position.copy(HOUSE_AT);
   farm.rotation.y = -0.03;
   attachModel(farm, houseGlb, 2.1, (g, root) => {
-    const pool = lightPool(18, 10, new THREE.Color(1.0, 0.55, 0.18), 1.3);   // window light on the yard
+    const pool = lightPool(18, 10, new THREE.Color(1.0, 0.55, 0.18), 1.4);   // window light on the yard
     pool.position.set(0, 0.05, 9);
     g.add(pool);
     const dog = buildDog();
@@ -190,14 +187,8 @@ export function createAurum(U) {
     for (let i = 0; i < a.count; i++) a.setXYZ(i, top.x, top.y, top.z);
     a.needsUpdate = true;
   });
-  // windmill: rotor node WindRotorZ spins about its own Z axis (the hub faces the camera)
-  /** @type {THREE.Object3D | null} */
-  let rotor = null;
-  const mill = new THREE.Group();
-  mill.position.copy(MILL_AT);
-  mill.rotation.y = 0.18;
-  attachModel(mill, windmillGlb, 1.5, (g, root) => { rotor = root.getObjectByName('WindRotorZ') || null; });
-  aurum.add(truck, farm, mill);
+
+  aurum.add(truck, farm);
 
   // ---- embers ----------------------------------------------------------
   /** @type {THREE.Points | null} */
@@ -242,7 +233,7 @@ export function createAurum(U) {
 
   return {
     group: aurum,
-    bench: () => ({ models: [truck, farm, mill], grass }),
+    bench: () => ({ models: [truck, farm], grass }),
     build(q) { buildGrass(q.grass); buildEmbers(q.embers); },
     setPx(px) {
       if (embers) embers.material.uniforms.uPx.value = px;
@@ -250,8 +241,7 @@ export function createAurum(U) {
     },
     update(t) {
       const fl = 0.92 + 0.08 * Math.sin(t * 7.0) * Math.sin(t * 3.1);   // lamplight flicker
-      windowMat.color.setRGB(5.0 * fl, 2.2 * fl, 0.55 * fl);
-      if (rotor) rotor.rotation.z = -(t * 0.45 + 0.35 * Math.sin(t * 0.37));   // slow turn that eases with the gusts
+      windowMat.color.setRGB(5.5 * fl, 2.4 * fl, 0.6 * fl);
     }
   };
 }

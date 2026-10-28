@@ -293,7 +293,9 @@ export function startApp(worlds) {
     camPos.copy(camera.position);
     hv.copy(holeDir).multiplyScalar(1000).add(camPos).project(camera);
     const inFront = holeDir.dot(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)) > 0;
-    grade.uniforms.uHoleUV.value = inFront ? [(hv.x + 1) / 2, (hv.y + 1) / 2] : [-5, -5];
+    grade.uniforms.uHoleUV.value = inFront && isFinite(hv.x) && isFinite(hv.y)
+      ? [clamp((hv.x + 1) / 2, -0.2, 1.2), clamp((hv.y + 1) / 2, -0.2, 1.2)]
+      : [0.5, 0.5];
 
     world().update(t, camera);
 
